@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-30T13:00:44Z",
+  "title": "Whisper Local — интерфейс по референсу Flow",
+  "extensions": {
+    "shadows": [
+      {
+        "name": "qt-overlay-ambient",
+        "value": "QPainter: spread=17…1; offsetY=5; alpha=int((1+(17-spread)*0.28)*strength)",
+        "purpose": "Прежняя мягкая тень капсулы (strength=1) и карточки (strength=0.7), нативное рисование Qt."
+      }
+    ],
+    "motion": [
+      {
+        "name": "overlay-appear",
+        "value": "170 ms; QEasingCurve.OutCubic; opacity 0 → 1",
+        "purpose": "Появление ранее скрытой панели. Смена состояния уже видимой панели не перезапускает появление."
+      },
+      {
+        "name": "wave-smoothing",
+        "value": "QTimer 16 ms; displayed += (target - displayed) * 0.32",
+        "purpose": "28 полосок в обычной панели, 18 в мини; сглаживание реального уровня микрофона."
+      },
+      {
+        "name": "insert-confirmation",
+        "value": "600 ms; галочка и «Вставлено»; затем hide",
+        "purpose": "Короткое подтверждение без карточки транскрипции."
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Основная кнопка",
+      "kind": "button",
+      "description": "Справочный HTML-образец кнопки «Посмотреть панель» по QSS. Источник нативного вида и поведения — ui.py, STYLE.",
+      "html": "<button class=\"ds-primary\">Посмотреть панель</button>",
+      "css": ".ds-primary{background:#242424;color:#FFFFFF;border:1px solid #242424;border-radius:7px;padding:8px 14px;min-height:20px;font:14px 'Segoe UI',sans-serif}.ds-primary:hover{background:#414141}.ds-primary:focus-visible{padding:7px 13px;outline:none}.ds-primary:disabled{color:#888888;background:#F3F3F0}"
+    },
+    {
+      "name": "Обычная кнопка",
+      "kind": "button",
+      "description": "Справочный HTML-образец вторичного действия по QSS. Нативные состояния определены в ui.py, STYLE.",
+      "html": "<button class=\"ds-button\">Скопировать последний текст</button>",
+      "css": ".ds-button{background:#F2F2EF;color:#202020;border:1px solid #E5E5E2;border-radius:7px;padding:8px 14px;min-height:20px;font:14px 'Segoe UI',sans-serif}.ds-button:hover{background:#EAEAE6}.ds-button:active{background:#DDDDD8}.ds-button:focus-visible{border:2px solid #71716C;padding:7px 13px;outline:none}.ds-button:disabled{color:#888888;background:#F3F3F0}"
+    },
+    {
+      "name": "Поле проверки диктовки",
+      "kind": "input",
+      "description": "Справочный HTML-образец QPlainTextEdit. Размер подстраивается под рабочую область, минимальная высота в Qt — 200 логических пикселей.",
+      "html": "<textarea class=\"ds-text\" aria-label=\"Поле для проверки диктовки\" placeholder=\"Здесь появятся ваши слова…\"></textarea>",
+      "css": ".ds-text{background:#FAFAF8;color:#202020;border:1px solid #DDDDD8;border-radius:9px;padding:14px;min-height:200px;font:15px 'Segoe UI',sans-serif}.ds-text::placeholder{color:#686868;opacity:1}.ds-text:focus-visible{border:2px solid #71716C;padding:13px;outline:none}.ds-text::selection{background:#D5EBDD;color:#171717}"
+    },
+    {
+      "name": "Боковая навигация",
+      "kind": "nav",
+      "description": "Справочный HTML-образец пяти разделов настроек. Выбранный пункт имеет нейтральный фон и полужирную подпись; фактическое переключение страниц выполняет Qt.",
+      "html": "<nav class=\"ds-nav\" aria-label=\"Настройки\"><button class=\"ds-nav-item ds-selected\" aria-current=\"page\">Основные</button><button class=\"ds-nav-item\">Панель</button><button class=\"ds-nav-item\">Звуки</button><button class=\"ds-nav-item\">Система</button><button class=\"ds-nav-item\">Проверка диктовки</button></nav>",
+      "css": ".ds-nav{background:#F4F3F0;display:flex;flex-direction:column;gap:5px}.ds-nav-item{background:transparent;color:#202020;border:none;border-radius:6px;padding:10px 12px;text-align:left;min-height:20px;font:14px 'Segoe UI',sans-serif}.ds-nav-item:hover{background:#EAE9E5}.ds-nav-item.ds-selected{background:#E6E5E0;font-weight:600}.ds-nav-item:focus-visible{border:1px solid #9A9993;padding:9px 11px;outline:none}"
+    },
+    {
+      "name": "Карточка результата",
+      "kind": "card",
+      "description": "Справочный HTML-образец карточки только при неудачной автоматической вставке. Две видимые строки; полный текст доступен для копирования. Область значка копирования обрабатывается раньше области перетаскивания. При успешной вставке карточка не показывается.",
+      "html": "<div class=\"ds-result\"><span class=\"ds-result-title\">Не удалось вставить · выберите поле</span><svg class=\"ds-copy\" width=\"16\" height=\"18\" viewBox=\"0 0 16 18\" aria-hidden=\"true\"><rect x=\"4\" y=\"5\" width=\"10\" height=\"12\" rx=\"2\"/><path d=\"M1 13V2H10\"/></svg><div class=\"ds-result-text\">Выберите поле и нажмите «Вставить в поле».</div></div>",
+      "css": ".ds-result{position:relative;width:380px;height:120px;border-radius:14px;background:#FFFFFF;color:#171717;font-family:'Segoe UI',sans-serif}.ds-result-title{position:absolute;left:18px;top:11px;line-height:23px;color:#686868;font-size:12px;font-weight:600}.ds-copy{position:absolute;right:18px;top:14px;fill:none;stroke:#666666;stroke-width:1.4}.ds-result-text{position:absolute;left:18px;right:18px;top:42px;font-size:15px;line-height:24px;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}"
+    },
+    {
+      "name": "Капсула записи",
+      "kind": "custom",
+      "description": "Восстановленный прежний вид: 252×44, 28 полосок, тёмные круглые кнопки. Зелёный или красный акцент.",
+      "html": "<svg width=\"252\" height=\"44\" viewBox=\"0 0 252 44\" xmlns=\"http://www.w3.org/2000/svg\"><rect x=\".4\" y=\".4\" width=\"251.2\" height=\"43.2\" rx=\"22\" fill=\"#171717\" stroke=\"#343434\" stroke-width=\".8\"/><circle cx=\"24\" cy=\"22.0\" r=\"12\" fill=\"#292929\"/><circle cx=\"228\" cy=\"22.0\" r=\"12\" fill=\"#292929\"/><path d=\"M20.3 18.3L27.7 25.7M27.7 18.3L20.3 25.7\" stroke=\"#A8A8A8\" stroke-width=\"1.7\" stroke-linecap=\"round\"/><path d=\"M224 22.0L227 25.0L233 18.0\" fill=\"none\" stroke=\"#F5F5F5\" stroke-width=\"1.9\" stroke-linecap=\"round\"/><rect x=\"63.22\" y=\"20.80\" width=\"2.45\" height=\"2.40\" rx=\"1.23\" fill=\"#1ED760\"/><rect x=\"67.88\" y=\"15.78\" width=\"2.45\" height=\"12.43\" rx=\"1.23\" fill=\"#1ED760\"/><rect x=\"72.52\" y=\"12.47\" width=\"2.45\" height=\"19.06\" rx=\"1.23\" fill=\"#1ED760\"/><rect x=\"77.17\" y=\"12.12\" width=\"2.45\" height=\"19.77\" rx=\"1.23\" fill=\"#1ED760\"/><rect x=\"81.82\" y=\"15.59\" width=\"2.45\" height=\"12.83\" rx=\"1.23\" fill=\"#1ED760\"/><rect x=\"86.47\" y=\"15.25\" width=\"2.45\" height=\"13.49\" rx=\"1.23\" fill=\"#1ED760\"/><rect x=\"91.12\" y=\"14.14\" width=\"2.45\" height=\"15.72\" rx=\"1.23\" fill=\"#1ED760\"/><rect x=\"95.78\" y=\"17.37\" width=\"2.45\" height=\"9.25\" rx=\"1.23\" fill=\"#1ED760\"/><rect x=\"100.42\" y=\"16.87\" width=\"2.45\" height=\"10.26\" rx=\"1.23\" fill=\"#1ED760\"/><rect x=\"105.07\" y=\"18.24\" width=\"2.45\" height=\"7.53\" rx=\"1.23\" fill=\"#1ED760\"/><rect x=\"109.72\" y=\"12.94\" width=\"2.45\" height=\"18.13\" rx=\"1.23\" fill=\"#1ED760\"/><rect x=\"114.38\" y=\"11.18\" width=\"2.45\" height=\"21.63\" rx=\"1.23\" fill=\"#1ED760\"/><rect x=\"119.03\" y=\"12.70\" width=\"2.45\" height=\"18.60\" rx=\"1.23\" fill=\"#1ED760\"/><rect x=\"123.67\" y=\"17.42\" width=\"2.45\" height=\"9.17\" rx=\"1.23\" fill=\"#1ED760\"/><rect x=\"128.32\" y=\"17.36\" width=\"2.45\" height=\"9.29\" rx=\"1.23\" fill=\"#1ED760\"/><rect x=\"132.97\" y=\"17.00\" width=\"2.45\" height=\"10.01\" rx=\"1.23\" fill=\"#1ED760\"/><rect x=\"137.62\" y=\"13.83\" width=\"2.45\" height=\"16.34\" rx=\"1.23\" fill=\"#1ED760\"/><rect x=\"142.28\" y=\"14.66\" width=\"2.45\" height=\"14.68\" rx=\"1.23\" fill=\"#1ED760\"/><rect x=\"146.93\" y=\"16.38\" width=\"2.45\" height=\"11.23\" rx=\"1.23\" fill=\"#1ED760\"/><rect x=\"151.57\" y=\"12.42\" width=\"2.45\" height=\"19.16\" rx=\"1.23\" fill=\"#1ED760\"/><rect x=\"156.22\" y=\"12.56\" width=\"2.45\" height=\"18.87\" rx=\"1.23\" fill=\"#1ED760\"/><rect x=\"160.88\" y=\"15.75\" width=\"2.45\" height=\"12.50\" rx=\"1.23\" fill=\"#1ED760\"/><rect x=\"165.53\" y=\"20.26\" width=\"2.45\" height=\"3.47\" rx=\"1.23\" fill=\"#1ED760\"/><rect x=\"170.18\" y=\"15.88\" width=\"2.45\" height=\"12.24\" rx=\"1.23\" fill=\"#1ED760\"/><rect x=\"174.82\" y=\"12.42\" width=\"2.45\" height=\"19.16\" rx=\"1.23\" fill=\"#1ED760\"/><rect x=\"179.48\" y=\"11.86\" width=\"2.45\" height=\"20.29\" rx=\"1.23\" fill=\"#1ED760\"/><rect x=\"184.12\" y=\"14.92\" width=\"2.45\" height=\"14.16\" rx=\"1.23\" fill=\"#1ED760\"/><rect x=\"188.78\" y=\"15.92\" width=\"2.45\" height=\"12.16\" rx=\"1.23\" fill=\"#1ED760\"/></svg>",
+      "css": ".ds-capsule-examples{display:flex;flex-direction:column;align-items:center;gap:12px}.ds-capsule{display:block}"
+    },
+    {
+      "name": "Мини-капсула записи",
+      "kind": "custom",
+      "description": "Восстановленный прежний вид: 184×48, 18 полосок, тёмные круглые кнопки. Зелёный или красный акцент.",
+      "html": "<svg width=\"184\" height=\"48\" viewBox=\"0 0 184 48\" xmlns=\"http://www.w3.org/2000/svg\"><rect x=\".4\" y=\".4\" width=\"183.2\" height=\"47.2\" rx=\"22\" fill=\"#171717\" stroke=\"#343434\" stroke-width=\".8\"/><circle cx=\"24\" cy=\"24.0\" r=\"12\" fill=\"#292929\"/><circle cx=\"160\" cy=\"24.0\" r=\"12\" fill=\"#292929\"/><path d=\"M20.3 20.3L27.7 27.7M27.7 20.3L20.3 27.7\" stroke=\"#A8A8A8\" stroke-width=\"1.7\" stroke-linecap=\"round\"/><path d=\"M156 24.0L159 27.0L165 20.0\" fill=\"none\" stroke=\"#F5F5F5\" stroke-width=\"1.9\" stroke-linecap=\"round\"/><rect x=\"52.47\" y=\"22.80\" width=\"2.45\" height=\"2.40\" rx=\"1.23\" fill=\"#1ED760\"/><rect x=\"57.12\" y=\"17.78\" width=\"2.45\" height=\"12.43\" rx=\"1.23\" fill=\"#1ED760\"/><rect x=\"61.77\" y=\"14.47\" width=\"2.45\" height=\"19.06\" rx=\"1.23\" fill=\"#1ED760\"/><rect x=\"66.42\" y=\"14.12\" width=\"2.45\" height=\"19.77\" rx=\"1.23\" fill=\"#1ED760\"/><rect x=\"71.07\" y=\"17.59\" width=\"2.45\" height=\"12.83\" rx=\"1.23\" fill=\"#1ED760\"/><rect x=\"75.72\" y=\"17.25\" width=\"2.45\" height=\"13.49\" rx=\"1.23\" fill=\"#1ED760\"/><rect x=\"80.38\" y=\"16.14\" width=\"2.45\" height=\"15.72\" rx=\"1.23\" fill=\"#1ED760\"/><rect x=\"85.03\" y=\"19.37\" width=\"2.45\" height=\"9.25\" rx=\"1.23\" fill=\"#1ED760\"/><rect x=\"89.67\" y=\"18.87\" width=\"2.45\" height=\"10.26\" rx=\"1.23\" fill=\"#1ED760\"/><rect x=\"94.32\" y=\"20.24\" width=\"2.45\" height=\"7.53\" rx=\"1.23\" fill=\"#1ED760\"/><rect x=\"98.97\" y=\"14.94\" width=\"2.45\" height=\"18.13\" rx=\"1.23\" fill=\"#1ED760\"/><rect x=\"103.62\" y=\"13.18\" width=\"2.45\" height=\"21.63\" rx=\"1.23\" fill=\"#1ED760\"/><rect x=\"108.28\" y=\"14.70\" width=\"2.45\" height=\"18.60\" rx=\"1.23\" fill=\"#1ED760\"/><rect x=\"112.92\" y=\"19.42\" width=\"2.45\" height=\"9.17\" rx=\"1.23\" fill=\"#1ED760\"/><rect x=\"117.58\" y=\"19.36\" width=\"2.45\" height=\"9.29\" rx=\"1.23\" fill=\"#1ED760\"/><rect x=\"122.22\" y=\"19.00\" width=\"2.45\" height=\"10.01\" rx=\"1.23\" fill=\"#1ED760\"/><rect x=\"126.88\" y=\"15.83\" width=\"2.45\" height=\"16.34\" rx=\"1.23\" fill=\"#1ED760\"/><rect x=\"131.53\" y=\"16.66\" width=\"2.45\" height=\"14.68\" rx=\"1.23\" fill=\"#1ED760\"/></svg>",
+      "css": ".ds-capsule-examples{display:flex;flex-direction:column;align-items:center;gap:12px}.ds-capsule{display:block}"
+    }
+  ],
+  "narrative": {
+    "overview": "По запросу пользователя восстановлен прежний вид обычной и мини-капсулы из резервной копии. Новые звуки и их настройки сохранены.",
+    "dos": [
+      "Сохранять оба размера капсулы, десять полосок и оба цвета волны.",
+      "Сохранять короткое подтверждение без карточки транскрипции после успешной вставки.",
+      "Различать официальные сигналы Flow и оригинальные наборы Console/Air; не обещать пиксельное совпадение всей панели с референсом."
+    ]
+  }
+}

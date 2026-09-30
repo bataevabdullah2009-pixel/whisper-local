@@ -1,0 +1,29 @@
+# Local runtime and user data
+/.venv/
+/venv/
+/data/
+/models/
+config.json
+.env
+.env.*
+!.env.example
+
+# Python caches and generated files
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.log
+*.tmp
+*.safetensors
+*.gguf
+*.onnx
+*.pt
+*.pth
+
+# Editor and Windows metadata
+.idea/
+.DS_Store
+Thumbs.db
+Desktop.ini
