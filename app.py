@@ -225,6 +225,7 @@ class Controller(QObject):
             self.settings.model_page.message.setText("Дождитесь завершения текущей операции и повторите.")
             return
         self.pending_device = device
+        self.settings.model_page.user_selected = True
         self.settings.model_page.set_busy(True, "Подготавливаем загрузку…")
         self.setup.start("download", model_id, str(self.data_dir / "models"))
 
@@ -266,7 +267,10 @@ class Controller(QObject):
 
     def practice_recording(self):
         if self.state == "recording":
+            self.settings.scratch.setFocus()
             self.finish_recording()
+            return
+        if self.state in ("processing", "canceling", "pasting", "loading"):
             return
         self.settings.scratch.setFocus()
         self.target = native.focus_target()

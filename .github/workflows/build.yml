@@ -53,8 +53,12 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
         run: |
-          $process = Start-Process -FilePath .\dist\WhisperLocal\WhisperLocal.exe -ArgumentList '--smoke-test --data-dir build/smoke' -PassThru -Wait -WindowStyle Hidden
-          if ($process.ExitCode -ne 0) { throw 'Packaged GUI smoke test failed.' }
+          $process = Start-Process -FilePath .\dist\WhisperLocal\WhisperLocal.exe -ArgumentList '--smoke-test --data-dir build/smoke' -PassThru -WindowStyle Hidden
+          if (-not $process.WaitForExit(60000)) { Stop-Process -Id $process.Id; throw 'Packaged GUI did not exit.' }
+          if ($process.ExitCode -ne 0) {
+            Get-Content build/smoke/startup.log -ErrorAction SilentlyContinue
+            throw 'Packaged GUI smoke test failed.'
+          }
           python scripts/smoke_asr.py --worker dist/WhisperLocal/WhisperWorker.exe
           if ($LASTEXITCODE -ne 0) { throw 'Packaged recognition smoke test failed.' }
       - name: macOS bundle smoke test

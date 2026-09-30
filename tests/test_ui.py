@@ -56,6 +56,17 @@ class FirstRun(unittest.TestCase):
             controller.shutdown()
             controller.settings.hide()
 
+    def test_practice_does_not_redirect_pending_external_dictation(self):
+        with patch("setup_service.SetupService.start"), patch("app.set_autostart"):
+            controller = Controller(self.app, self.data, no_hook=True)
+            controller.state = "processing"
+            controller.target = (123, 456)
+            controller.practice_recording()
+            self.assertEqual(controller.target, (123, 456))
+            controller.state = "setup"
+            controller.shutdown()
+            controller.settings.hide()
+
     def test_model_page_has_cancel_retry_and_practice_states(self):
         config = json.loads((ROOT / "config.example.json").read_text())
         window = SettingsWindow(config)

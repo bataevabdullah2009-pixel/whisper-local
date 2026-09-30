@@ -1,6 +1,6 @@
 # Whisper Local · Preview
 
-Local dictation for Windows 10/11 x64 and macOS 13+ (Apple Silicon and Intel).
+Local dictation for Windows 10/11 x64 and macOS 14+ (Apple Silicon and Intel).
 The standalone applications bundle Python and the recognition engine. No account or API key is needed.
 The current UI is in Russian.
 

@@ -24,8 +24,15 @@ if sys.platform == "win32":
 hidden = collect_submodules("av")
 common = dict(pathex=[str(root)], binaries=binaries, datas=data, hiddenimports=hidden,
               excludes=["tkinter", "matplotlib", "IPython", "pytest"])
-gui = Analysis([str(root / "app.py")], **common)
+gui = Analysis([str(root / "gui_entry.py")], **common)
 worker = Analysis([str(root / "worker_entry.py")], **common)
+if sys.platform == "win32":
+    # Qt links the Windows ICU API. A private ICU found on the build host's PATH
+    # (e.g. Poppler) exports versioned symbols and breaks QtCore at startup.
+    system_icu = {"icu.dll", "icuuc.dll", "icuin.dll", "icudt.dll"}
+    for analysis in (gui, worker):
+        analysis.binaries = [entry for entry in analysis.binaries
+                             if Path(entry[0]).name.lower() not in system_icu]
 icon = str(root / "build/app.ico") if sys.platform == "win32" else None
 gui_exe = EXE(PYZ(gui.pure), gui.scripts, [], exclude_binaries=True, name="WhisperLocal",
               console=False, icon=icon, upx=False)
@@ -38,7 +45,7 @@ if sys.platform == "darwin":
                  bundle_identifier="com.whisperlocal.open", version="0.1.0",
                  info_plist={
                      "CFBundleDisplayName": "Whisper Local",
-                     "LSMinimumSystemVersion": "13.0",
+                     "LSMinimumSystemVersion": "14.0",
                      "LSBackgroundOnly": False,
                      "NSHighResolutionCapable": True,
                      "NSMicrophoneUsageDescription": "Whisper Local записывает голос только во время диктовки и распознаёт его на вашем Mac.",
