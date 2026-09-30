@@ -9,7 +9,8 @@ from PySide6.QtGui import (QColor, QPainter, QPen, QFont, QFontDatabase, QIcon, 
                           QTextLayout, QTextOption, QCursor, QPalette, QPolygonF)
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QComboBox, QCheckBox, QPlainTextEdit, QFrame, QApplication, QStackedWidget, QSlider)
-import windows_native as native
+import platform_native as native
+from setup_ui import ModelPage
 
 GREEN, RED, INK, WHITE, MUTED = [QColor(x) for x in ('#1ED760','#FF453A','#171717','#F5F5F5','#A8A8A8')]
 
@@ -19,7 +20,7 @@ def prepare_fonts():
         if (directory/name).is_file(): QFontDatabase.addApplicationFont(str(directory/name))
 
 def font(size,weight=QFont.Weight.Normal):
-    result=QFont('Segoe UI',size); result.setPixelSize(size); result.setWeight(weight)
+    result=QFont(QApplication.font() if native.IS_MAC else QFont('Segoe UI')); result.setPixelSize(size); result.setWeight(weight)
     return result
 
 def app_icon(size=64):
@@ -219,6 +220,7 @@ class Overlay(QWidget):
         self.setCursor(Qt.CursorShape.OpenHandCursor)
     def leaveEvent(self,event): self.hover=''; self.update()
     def nativeEvent(self,event_type,message):
+        if native.IS_MAC: return super().nativeEvent(event_type,message)
         from ctypes import wintypes
         msg=wintypes.MSG.from_address(int(message))
         if msg.message==0x21: return True,3
@@ -271,10 +273,12 @@ def label(text,kind=None):
 class SettingsWindow(QWidget):
     changed=Signal(); previewRequested=Signal(); retryRequested=Signal(); copyRequested=Signal()
     previewSoundRequested=Signal(str); resetPositionRequested=Signal()
-    PAGE_NAMES=('Основные','Панель','Звуки','Система','Проверка диктовки')
+    recordRequested=Signal(); permissionsRequested=Signal()
+    PAGE_NAMES=('Основные','Модель','Панель','Звуки','Система','Проверка диктовки')
     def __init__(self,config):
         super().__init__(); self.config=config
-        self.setWindowTitle('Whisper Local'); self.setWindowIcon(app_icon()); self.resize(860,620); self.setMinimumSize(780,590); self.setStyleSheet(STYLE)
+        self.setWindowTitle('Whisper Local'); self.setWindowIcon(app_icon()); self.resize(900,700); self.setMinimumSize(860,680)
+        self.setStyleSheet(STYLE.replace("font-family:'Segoe UI';", "" if native.IS_MAC else "font-family:'Segoe UI';"))
         root=QHBoxLayout(self); root.setContentsMargins(0,0,0,0); root.setSpacing(0)
         sidebar=QWidget(); sidebar.setObjectName('sidebar'); sidebar.setFixedWidth(200)
         rail=QVBoxLayout(sidebar); rail.setContentsMargins(18,27,18,24); rail.setSpacing(5)
@@ -290,8 +294,8 @@ class SettingsWindow(QWidget):
         self.status=label('Подготавливаю распознавание…','status'); main.addWidget(self.status)
         self.pages=QStackedWidget(); main.addWidget(self.pages,1)
         general=QWidget(); form=QVBoxLayout(general); form.setContentsMargins(0,6,0,0); form.setSpacing(0)
-        key=label('Alt','key'); key.setAlignment(Qt.AlignmentFlag.AlignCenter); key.setFixedSize(61,38)
-        self.add_row(form,'Горячая клавиша','Удерживайте левый Alt, чтобы говорить.\nОтпустите, чтобы вставить текст.',key)
+        key=label(native.HOTKEY_SHORT,'key'); key.setAlignment(Qt.AlignmentFlag.AlignCenter); key.setMinimumSize(70,38)
+        self.add_row(form,'Горячая клавиша',f'Удерживайте {native.HOTKEY_NAME}, чтобы говорить.\nОтпустите, чтобы вставить текст.',key)
         self.microphone=ChoiceBox(); self.microphone.setAccessibleName('Микрофон'); self.microphone.setFixedWidth(250)
         self.microphone.setMinimumContentsLength(17); self.microphone.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         mic=QWidget(); micbox=QVBoxLayout(mic); micbox.setContentsMargins(0,0,0,0); micbox.setSpacing(5); micbox.addWidget(self.microphone)
@@ -302,6 +306,8 @@ class SettingsWindow(QWidget):
         for text,code in (('Русский','ru'),('Автоматически',None),('English','en')): self.language.addItem(text,code)
         self.language.setCurrentIndex(max(0,self.language.findData(config.get('language','ru')))); self.add_row(form,'Язык диктовки','На каком языке вы говорите.',self.language)
         form.addStretch(); self.pages.addWidget(general)
+        self.model_page=ModelPage(config); self.pages.addWidget(self.model_page)
+        self.model_page.practiceRequested.connect(lambda:self.show_page(5))
         panel=QWidget(); panel_layout=QVBoxLayout(panel); panel_layout.setContentsMargins(0,6,0,0); panel_layout.setSpacing(0)
         self.panel_style=ChoiceBox(); self.panel_style.setAccessibleName('Вид панели'); self.panel_style.setFixedWidth(225)
         self.panel_style.addItem('Обычная','flow'); self.panel_style.addItem('Мини','mini')
@@ -341,18 +347,23 @@ class SettingsWindow(QWidget):
         sound_buttons.addWidget(play_start); sound_buttons.addWidget(play_insert); sound_layout.addLayout(sound_buttons)
         self.pages.addWidget(sound)
         system=QWidget(); system_layout=QVBoxLayout(system); system_layout.setContentsMargins(0,8,0,0); system_layout.setSpacing(16)
-        self.autostart=QCheckBox('Запускать при входе в Windows'); self.autostart.setChecked(config.get('autostart',True)); system_layout.addWidget(self.autostart)
+        self.autostart=QCheckBox(f'Запускать при входе в {native.SYSTEM_NAME}'); self.autostart.setChecked(config.get('autostart',False)); system_layout.addWidget(self.autostart)
         system_layout.addWidget(label('После входа приложение работает в трее. Закрытие окна настроек не останавливает диктовку.','description')); system_layout.addSpacing(18)
-        system_layout.addWidget(label('Локальное распознавание','section')); system_layout.addWidget(label('Whisper large-v3-turbo · NVIDIA CUDA\nМодель остаётся в видеопамяти, пока приложение открыто.','description')); system_layout.addSpacing(18)
+        system_layout.addWidget(label('Локальное распознавание','section'))
+        self.engine_label=label('Модель ещё не подготовлена. Откройте раздел «Модель».','description'); system_layout.addWidget(self.engine_label); system_layout.addSpacing(18)
         system_layout.addWidget(label('Ваши записи','section')); system_layout.addWidget(label('Микрофон включается только во время диктовки. Аудио обрабатывается на компьютере и не сохраняется. Последний текст доступен до выхода из приложения.','description')); system_layout.addStretch(); self.pages.addWidget(system)
         test=QWidget(); testing=QVBoxLayout(test); testing.setContentsMargins(0,8,0,0); testing.setSpacing(16)
-        testing.addWidget(label('Нажмите в поле, удерживайте Alt и скажите пару слов. Готовый текст появится после отпускания клавиши.','description'))
+        testing.addWidget(label(f'Нажмите в поле, удерживайте {native.HOTKEY_NAME} и скажите пару слов. Или запустите запись кнопкой ниже.','description'))
         self.scratch=QPlainTextEdit(); self.scratch.setAccessibleName('Поле для проверки диктовки'); self.scratch.setPlaceholderText('Здесь появятся ваши слова…')
         palette=self.scratch.palette(); palette.setColor(QPalette.ColorRole.PlaceholderText,QColor('#686868')); self.scratch.setPalette(palette)
         self.scratch.setMinimumHeight(200); testing.addWidget(self.scratch,1)
-        self.latest_label=label('Esc отменяет запись. Alt+Tab и другие сочетания работают как обычно.','detail'); testing.addWidget(self.latest_label)
+        self.record_button=QPushButton('Начать проверку микрофона'); self.record_button.setObjectName('primary'); self.record_button.clicked.connect(self.recordRequested); testing.addWidget(self.record_button)
+        self.latest_label=label('Esc отменяет запись. Обычные сочетания клавиш продолжают работать.','detail'); testing.addWidget(self.latest_label)
         self.copy=QPushButton('Скопировать последний текст'); self.copy.setEnabled(False); self.copy.clicked.connect(self.copyRequested); testing.addWidget(self.copy,0,Qt.AlignmentFlag.AlignRight); self.pages.addWidget(test)
         self.retry=QPushButton('Перезапустить распознавание'); self.retry.clicked.connect(self.retryRequested); self.retry.hide(); main.addWidget(self.retry)
+        self.permission_note=label('','description'); self.permission_note.hide(); main.addWidget(self.permission_note)
+        if native.IS_MAC:
+            permissions=QPushButton('Разрешить горячую клавишу в macOS'); permissions.clicked.connect(self.permissionsRequested); main.addWidget(permissions)
         main.addWidget(label('Изменения сохраняются автоматически.','detail')); root.addWidget(content,1)
         self.refresh_microphones(); self.show_page(0)
         for combo in (self.microphone,self.language,self.color,self.panel_style,self.sound_style): combo.currentIndexChanged.connect(self._save)
@@ -380,10 +391,10 @@ class SettingsWindow(QWidget):
         for i,button in enumerate(self.nav): button.setChecked(i==index)
     def refresh_microphones(self):
         import sounddevice as sd
-        self.microphone.blockSignals(True); self.microphone.clear(); self.microphone.addItem('По умолчанию в Windows',(None,None))
+        self.microphone.blockSignals(True); self.microphone.clear(); self.microphone.addItem(f'По умолчанию в {native.SYSTEM_NAME}',(None,None))
         try:
             for i,device in enumerate(sd.query_devices()):
-                if device['max_input_channels'] and device['hostapi']==0 and i!=0: self.microphone.addItem(device['name'],(i,device['name']))
+                if device['max_input_channels'] and (native.IS_MAC or device['hostapi']==0): self.microphone.addItem(device['name'],(i,device['name']))
             chosen=self.config.get('microphone')
             for index in range(self.microphone.count()):
                 if self.microphone.itemData(index)[0]==chosen: self.microphone.setCurrentIndex(index); break

@@ -12,21 +12,22 @@ from pathlib import Path
 import sys
 import time
 import uuid
-import winreg
 
 from PySide6.QtCore import (QObject, Signal, QTimer, QProcess, QProcessEnvironment,
                            QMimeData, QByteArray)
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
-from PySide6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
+from PySide6.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QFileDialog
 from PySide6.QtGui import QAction
 
 from audio_capture import Recorder
 from sound_cues import SoundCues
 from ui import Overlay, SettingsWindow, app_icon, prepare_fonts
-import windows_native as native
+import platform_native as native
+from runtime import APP_ID, data_directory, set_autostart, worker_command
+from model_manager import validate_model
+from setup_service import SetupService
 
 ROOT = Path(__file__).resolve().parent
-DEFAULT_INSTALL = Path.home() / "Documents" / "WhisperLocal"
 LOG = logging.getLogger("WhisperLocal")
 
 
@@ -42,20 +43,6 @@ def load_config(data_dir):
     default["max_recording_seconds"] = max(10, min(180, int(default["max_recording_seconds"])))
     default["sound_volume"] = max(0, min(100, int(default.get("sound_volume", 65))))
     return default
-
-
-def set_autostart(enabled, data_dir):
-    with winreg.CreateKey(winreg.HKEY_CURRENT_USER,
-                         r"Software\Microsoft\Windows\CurrentVersion\Run") as key:
-        if enabled:
-            pythonw = Path(sys.executable).with_name("pythonw.exe")
-            command = f'"{pythonw}" "{ROOT / "app.py"}" --data-dir "{data_dir}" --background'
-            winreg.SetValueEx(key, "WhisperLocal", 0, winreg.REG_SZ, command)
-        else:
-            try:
-                winreg.DeleteValue(key, "WhisperLocal")
-            except FileNotFoundError:
-                pass
 
 
 class PasteManager(QObject):
@@ -92,10 +79,10 @@ class PasteManager(QObject):
                 for format_name in mime.formats():
                     previous[format_name] = QByteArray(mime.data(format_name))
             clipboard.setText(text)
-            sequence = native.user32.GetClipboardSequenceNumber()
+            sequence = native.clipboard_sequence()
 
             def restore():
-                if native.user32.GetClipboardSequenceNumber() != sequence:
+                if native.clipboard_sequence() != sequence:
                     return  # Never overwrite something the user copied in the meantime.
                 old = QMimeData()
                 for name, value in previous.items():
@@ -144,6 +131,8 @@ class Controller(QObject):
         self.stdout_buffer = b""
         self.stderr_tail = b""
         self.worker = None
+        self.device_description = "процессор"
+        self.pending_device = "auto"
         self.overlay = Overlay()
         self.overlay.set_wave_color(self.config.get("wave_color", "green"))
         self.overlay.set_style(self.config.get("bar_style", "flow"))
@@ -165,6 +154,18 @@ class Controller(QObject):
         self.settings.resetPositionRequested.connect(self.reset_bar_position)
         self.settings.retryRequested.connect(self.restart_worker)
         self.settings.copyRequested.connect(self.copy_last)
+        self.settings.recordRequested.connect(self.practice_recording)
+        self.settings.permissionsRequested.connect(self.request_permissions)
+        self.settings.model_page.downloadRequested.connect(self.download_model)
+        self.settings.model_page.importRequested.connect(self.import_model)
+        self.settings.model_page.cancelRequested.connect(self.cancel_download)
+        self.setup = SetupService(self)
+        self.setup.event.connect(self.setup_event)
+        self.setup.failed.connect(self.setup_failed)
+        self.probe = SetupService(self)
+        self.probe.event.connect(self.settings.model_page.set_hardware)
+        self.probe.failed.connect(lambda message: self.settings.model_page.hardware.setText(
+            "Автоматическая проверка недоступна. Начните с модели «Быстрая» и процессора."))
         self.hotkey.connect(self.on_hotkey)
         self.hold_timer = QTimer(self)
         self.hold_timer.setSingleShot(True)
@@ -178,14 +179,9 @@ class Controller(QObject):
         self.operation_timer.timeout.connect(self._timeout)
         self.hook = None
         if not no_hook:
-            self.hook = native.KeyboardHook(self.hotkey.emit, self.config["hold_ms"] / 1000)
-            self.hook.start()
-            self.hook.ready.wait(3)
-            if self.hook.error or not self.hook.ready.is_set():
-                self.settings.set_status("Не удалось подключить Alt. Перезапустите программу.", True)
-                LOG.error("Hotkey hook failed: %s", self.hook.error)
+            self.start_hook()
         self.tray = QSystemTrayIcon(app_icon(), self)
-        self.tray.setToolTip("Whisper Local · удерживайте левый Alt")
+        self.tray.setToolTip(f"Whisper Local · удерживайте {native.HOTKEY_NAME}")
         menu = QMenu()
         menu.setStyleSheet("QMenu { padding:6px; } QMenu::item { padding:7px 24px; }")
         menu.addAction("Открыть Whisper Local", self.show_settings)
@@ -205,6 +201,80 @@ class Controller(QObject):
         if not background:
             self.show_settings()
         self.start_worker()
+        self.probe.start("probe")
+
+    def start_hook(self):
+        if self.hook:
+            self.hook.stop()
+        self.hook = native.KeyboardHook(self.hotkey.emit, self.config["hold_ms"] / 1000)
+        self.hook.start()
+        self.hook.ready.wait(3)
+        warning = ""
+        if self.hook.error or not self.hook.ready.is_set():
+            warning = str(self.hook.error or "Не удалось подключить горячую клавишу. Перезапустите приложение.")
+            LOG.error("Hotkey hook failed: %s", self.hook.error)
+        self.settings.permission_note.setText(warning)
+        self.settings.permission_note.setVisible(bool(warning))
+
+    def request_permissions(self):
+        native.request_permissions()
+        self.start_hook()
+
+    def download_model(self, model_id, device):
+        if self.state in ("recording", "processing", "canceling", "pasting", "loading"):
+            self.settings.model_page.message.setText("Дождитесь завершения текущей операции и повторите.")
+            return
+        self.pending_device = device
+        self.settings.model_page.user_selected = True
+        self.settings.model_page.set_busy(True, "Подготавливаем загрузку…")
+        self.setup.start("download", model_id, str(self.data_dir / "models"))
+
+    def cancel_download(self):
+        self.setup.stop()
+        self.settings.model_page.set_busy(False, "Загрузка остановлена. Нажмите «Скачать и настроить», чтобы продолжить.")
+
+    def setup_failed(self, message):
+        self.settings.model_page.set_busy(False, message)
+
+    def setup_event(self, event):
+        if event.get("type") == "progress":
+            self.settings.model_page.update_progress(event)
+        elif event.get("type") == "downloaded":
+            self.activate_model(event["path"], self.pending_device, event["model_id"])
+
+    def import_model(self, device):
+        if self.state in ("recording", "processing", "canceling", "pasting", "loading"):
+            self.settings.model_page.message.setText("Дождитесь завершения текущей операции и повторите.")
+            return
+        path = QFileDialog.getExistingDirectory(self.settings, "Папка модели faster-whisper")
+        if path:
+            self.activate_model(path, device, "local")
+
+    def activate_model(self, path, device, model_id):
+        try:
+            path = validate_model(path)
+        except (ValueError, OSError) as error:
+            self.setup_failed(str(error))
+            return
+        # A download may finish while the user is dictating with the old model.
+        if self.state in ("recording", "processing", "canceling", "pasting"):
+            self.settings.model_page.set_busy(False, "Модель скачана. Завершите диктовку и нажмите «Скачать и настроить» ещё раз.")
+            return
+        self.config.update(model_path=str(path), model_id=model_id, device=device)
+        self.save_config()
+        self.settings.model_page.set_busy(False, "Проверяем модель. Первый запуск может занять несколько минут…")
+        self.restart_worker()
+
+    def practice_recording(self):
+        if self.state == "recording":
+            self.settings.scratch.setFocus()
+            self.finish_recording()
+            return
+        if self.state in ("processing", "canceling", "pasting", "loading"):
+            return
+        self.settings.scratch.setFocus()
+        self.target = native.focus_target()
+        self.begin_recording(manual=True)
 
     def save_config(self):
         self.overlay.set_wave_color(self.config.get("wave_color", "green"))
@@ -244,9 +314,9 @@ class Controller(QObject):
             self.cancel()
         if self.hook:
             self.hook.enabled = not paused
-        self.tray.setToolTip("Whisper Local · пауза" if paused else "Whisper Local · удерживайте левый Alt")
+        self.tray.setToolTip("Whisper Local · пауза" if paused else f"Whisper Local · удерживайте {native.HOTKEY_NAME}")
         self.settings.set_status("Диктовка приостановлена через меню в трее." if paused
-                                 else "Готов к диктовке · модель работает на видеокарте")
+                                 else f"Готов к диктовке · {self.device_description}" if self.ready else "Сначала подготовьте модель")
 
     def preview(self):
         if self.state == "recording":
@@ -255,13 +325,19 @@ class Controller(QObject):
 
     def start_worker(self):
         self.state, self.ready = "loading", False
-        self.settings.set_status("Подготавливаю Whisper на видеокарте…")
+        self.settings.model_page.practice.hide()
+        self.settings.set_status("Подготавливаем локальное распознавание…")
         self.stdout_buffer = b""
         self.stderr_tail = b""
-        for name in ("asr_python", "model_path", "cuda_path"):
-            if not Path(self.config[name]).exists():
-                self.fail("Не найден компонент Whisper. Проверьте пути в data/config.json.")
-                return
+        try:
+            validate_model(self.config.get("model_path", ""))
+        except (OSError, ValueError) as error:
+            self.state = "setup"
+            self.settings.set_status("Выберите модель для первого запуска")
+            self.settings.model_page.message.setText(str(error))
+            self.settings.show_page(1)
+            self.show_settings()
+            return
         worker = QProcess(self)
         self.worker = worker
         environment = QProcessEnvironment.systemEnvironment()
@@ -275,11 +351,12 @@ class Controller(QObject):
         worker.readyReadStandardError.connect(self.read_stderr)
         worker.finished.connect(self.worker_finished)
         worker.errorOccurred.connect(self.worker_error)
-        worker.setProgram(self.config["asr_python"])
-        worker.setArguments(["-u", "-B", str(ROOT / "asr_worker.py"), "--model",
-                             self.config["model_path"], "--cuda", self.config["cuda_path"]])
+        command = worker_command("asr", "--model", self.config["model_path"],
+                                 "--device", self.config.get("device", "auto"))
+        worker.setProgram(command[0])
+        worker.setArguments(command[1:])
         worker.start()
-        self.operation_timer.start(90000)
+        self.operation_timer.start(300000)
 
     def read_stderr(self):
         if self.worker:
@@ -304,13 +381,18 @@ class Controller(QObject):
         if kind == "ready":
             self.operation_timer.stop()
             self.state, self.ready = "idle", True
-            LOG.info("CUDA worker ready in %s seconds", event.get("load_seconds"))
-            self.settings.set_status("Готов к диктовке · модель работает на видеокарте")
+            LOG.info("%s worker ready in %s seconds", event.get("device"), event.get("load_seconds"))
+            self.device_description = "видеокарта NVIDIA" if event.get("device") == "cuda" else "процессор"
+            self.settings.set_status(f"Готов к диктовке · {self.device_description}")
+            self.settings.engine_label.setText(f"Whisper · {self.device_description}\nМодель остаётся в памяти, пока приложение открыто.")
+            self.settings.model_page.set_ready(self.config["model_path"], self.device_description)
+            if event.get("fallback"):
+                self.settings.model_page.message.setText("Ускорение NVIDIA недоступно. Модель готова и работает на процессоре.")
             if self.overlay.isVisible() and self.overlay.mode == "loading":
                 self.overlay.present("ready", timeout=2)
         elif kind == "fatal":
             LOG.error("ASR initialization: %s", event.get("error"))
-            self.fail("Whisper не запустился. Откройте настройки и перезапустите распознавание.")
+            self.fail("Модель не запустилась. Попробуйте модель «Быстрая» или повторите её загрузку.")
         elif kind in ("result", "error"):
             self.operation_timer.stop()
             if self.state == "canceling":
@@ -358,6 +440,7 @@ class Controller(QObject):
             self.worker.kill()
             self.worker.waitForFinished(2000)
             self.worker.deleteLater()
+            self.worker = None
         self.start_worker()
 
     def _escape(self, enabled):
@@ -381,13 +464,16 @@ class Controller(QObject):
             LOG.error("Hotkey callback failed")
             self.cancel()
 
-    def begin_recording(self):
-        if self.hook and (not self.hook.state.held or self.hook.state.canceled):
+    def begin_recording(self, manual=False):
+        if not manual and self.hook and (not self.hook.state.held or self.hook.state.canceled):
             return
         if self.pause_action.isChecked():
             return
         if not self.ready:
-            if self.state == "error":
+            if self.state == "setup":
+                self.settings.show_page(1)
+                self.show_settings()
+            elif self.state == "error":
                 self.overlay.present("error", "Whisper не готов. Откройте настройки.", timeout=5)
             else:
                 self.overlay.present("loading", timeout=5)
@@ -404,6 +490,7 @@ class Controller(QObject):
             return
         self.record_started = time.monotonic()
         self.state = "recording"
+        self.settings.record_button.setText("Завершить проверку")
         self._escape(True)
         self.overlay.present("recording")
         self.sounds.play("start")
@@ -423,6 +510,7 @@ class Controller(QObject):
             self.finish_recording()
 
     def finish_recording(self):
+        self.settings.record_button.setText("Начать проверку микрофона")
         self.meter_timer.stop()
         audio = self.recorder.stop()
         if self.recorder.overflow:
@@ -442,7 +530,7 @@ class Controller(QObject):
             self.fail("Whisper остановился. Перезапустите его в настройках.")
             return
         self.worker.write((json.dumps(request) + "\n").encode("utf-8"))
-        self.operation_timer.start(120000)
+        self.operation_timer.start(600000)
 
     def finish_if_recording(self):
         if self.state == "recording":
@@ -456,7 +544,7 @@ class Controller(QObject):
         if success:
             self.sounds.play("insert")
             self.overlay.present("result", timeout=.6)
-            self.settings.set_status("Готов к следующей диктовке · CUDA")
+            self.settings.set_status(f"Готов к следующей диктовке · {self.device_description}")
         else:
             self.overlay.present("manual", self.last_text, timeout=12, title="Не удалось вставить · выберите поле")
             self.settings.set_status(reason)
@@ -475,6 +563,7 @@ class Controller(QObject):
             self.overlay.present("copied", timeout=1.6)
 
     def cancel(self):
+        self.settings.record_button.setText("Начать проверку микрофона")
         self.hold_timer.stop()
         self.paste_manager.cancel()
         was_active = self.state in ("recording", "processing", "pasting")
@@ -509,6 +598,8 @@ class Controller(QObject):
         if self.shutting_down:
             return
         self.shutting_down = True
+        self.setup.stop()
+        self.probe.stop()
         self.hold_timer.stop()
         self.meter_timer.stop()
         self.operation_timer.stop()
@@ -528,10 +619,13 @@ class Controller(QObject):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data-dir", type=Path, default=DEFAULT_INSTALL / "data")
+    parser.add_argument("--data-dir", type=Path, default=data_directory())
     parser.add_argument("--background", action="store_true")
     parser.add_argument("--quit", action="store_true")
     parser.add_argument("--preview", action="store_true")
+    parser.add_argument("--no-hook", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--smoke-test", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--smoke-screenshot", type=Path, help=argparse.SUPPRESS)
     args = parser.parse_args()
     args.data_dir.mkdir(parents=True, exist_ok=True)
     handler = RotatingFileHandler(args.data_dir / "app.log", maxBytes=300000, backupCount=2, encoding="utf-8")
@@ -542,7 +636,16 @@ def main():
     app.setOrganizationName("WhisperLocal")
     app.setWindowIcon(app_icon())
     app.setQuitOnLastWindowClosed(False)
-    server_name = "WhisperLocal-" + hashlib.sha256(str(Path.home()).encode()).hexdigest()[:16]
+    if args.smoke_test:
+        settings = SettingsWindow(load_config(args.data_dir))
+        settings.show_page(1)
+        settings.show()
+        app.processEvents()
+        if args.smoke_screenshot:
+            settings.grab().save(str(args.smoke_screenshot))
+        settings.hide()
+        return 0
+    server_name = APP_ID + "-" + hashlib.sha256(str(args.data_dir.resolve()).encode()).hexdigest()[:16]
     socket = QLocalSocket()
     socket.connectToServer(server_name)
     if socket.waitForConnected(500):
@@ -558,7 +661,7 @@ def main():
     if not server.listen(server_name):
         LOG.error("Could not acquire single-instance server")
         return 1
-    controller = Controller(app, args.data_dir, args.background)
+    controller = Controller(app, args.data_dir, args.background, args.no_hook)
     clients = []
 
     def accept():

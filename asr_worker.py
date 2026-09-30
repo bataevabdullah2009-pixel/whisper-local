@@ -1,4 +1,4 @@
-"""Offline CUDA recognizer. PCM travels through pipes, never via files or sockets."""
+"""Offline CPU/CUDA recognizer. PCM travels through pipes, never via files or sockets."""
 from __future__ import annotations
 
 import argparse
@@ -8,6 +8,32 @@ import os
 from pathlib import Path
 import sys
 import time
+from runtime import prepare_cuda
+
+
+def load_model(path, preference, factory, supported, threads):
+    """Probe by loading AND running kernels; device enumeration alone isn't enough."""
+    import numpy as np
+    fallback = False
+    for device in (("cuda", "cpu") if preference != "cpu" and sys.platform == "win32" else ("cpu",)):
+        model = None
+        try:
+            types = supported(device)
+            compute_type = "float16" if device == "cuda" and "float16" in types else (
+                "int8" if "int8" in types else "float32")
+            model = factory(path, device=device, compute_type=compute_type,
+                            local_files_only=True, num_workers=1, cpu_threads=threads)
+            segments, _ = model.transcribe(np.zeros(8000, dtype=np.float32), language="ru",
+                beam_size=1, vad_filter=False, condition_on_previous_text=False)
+            list(segments)
+            return model, device, compute_type, fallback
+        except Exception:
+            if device == "cpu":
+                raise
+            del model
+            import gc
+            gc.collect()
+            fallback = True
 
 
 def emit(event: dict) -> None:
@@ -17,32 +43,29 @@ def emit(event: dict) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", required=True)
-    parser.add_argument("--cuda", required=True)
+    parser.add_argument("--cuda", default="")
+    parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
     args = parser.parse_args()
     os.environ.update(HF_HUB_OFFLINE="1", HF_HUB_DISABLE_TELEMETRY="1", DO_NOT_TRACK="1")
-    os.environ["PATH"] = args.cuda + os.pathsep + os.environ.get("PATH", "")
-    dll_handle = os.add_dll_directory(args.cuda)
+    dll_handles = prepare_cuda(args.cuda)
     # Enforce offline operation even if a dependency changes its defaults.
     def offline(event, _args):
         if event in ("socket.connect", "socket.bind", "socket.getaddrinfo"):
             raise RuntimeError("Whisper Local runs offline")
     sys.addaudithook(offline)
-    import numpy as np
-    from faster_whisper import WhisperModel
-    from faster_whisper.vad import get_speech_timestamps, VadOptions
-
     started = time.monotonic()
     try:
+        import numpy as np
+        import ctranslate2
+        from faster_whisper import WhisperModel
+        from faster_whisper.vad import get_speech_timestamps, VadOptions
         if not (Path(args.model) / "model.bin").is_file():
             raise FileNotFoundError("Не найдена локальная модель Whisper")
-        model = WhisperModel(args.model, device="cuda", compute_type="float16",
-                             local_files_only=True, num_workers=1, cpu_threads=4)
-        # The first CUDA kernels are compiled before the first user dictation.
-        segments, _ = model.transcribe(np.zeros(8000, dtype=np.float32), language="ru",
-                                      beam_size=1, vad_filter=False, condition_on_previous_text=False)
-        list(segments)
+        model, device, compute_type, fallback = load_model(
+            args.model, args.device, WhisperModel, ctranslate2.get_supported_compute_types,
+            max(1, min(8, (os.cpu_count() or 2) // 2)))
         get_speech_timestamps(np.zeros(16000, dtype=np.float32), VadOptions())
-        emit({"type": "ready", "device": "cuda", "compute_type": "float16",
+        emit({"type": "ready", "device": device, "compute_type": compute_type, "fallback": fallback,
               "load_seconds": round(time.monotonic() - started, 2)})
     except Exception as error:
         emit({"type": "fatal", "error": str(error)})
@@ -81,7 +104,7 @@ def main() -> int:
                 )
                 text = " ".join(s.text.strip() for s in segments).strip()
             emit({"type": "result", "id": request["id"], "text": text,
-                  "seconds": round(time.monotonic() - started, 3), "device": "cuda"})
+                  "seconds": round(time.monotonic() - started, 3), "device": device})
         except Exception as error:
             emit({"type": "error", "id": request.get("id"), "error": str(error)})
         # Do not keep dictation PCM in idle worker memory.
@@ -91,7 +114,8 @@ def main() -> int:
             del audio
         if "data" in locals():
             del data
-    dll_handle.close()
+    for handle in dll_handles:
+        handle.close()
     return 0
 
 

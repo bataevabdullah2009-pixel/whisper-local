@@ -1,0 +1,94 @@
+[
+  {
+    "id": "base",
+    "repo": "Systran/faster-whisper-base",
+    "revision": "ebe41f70d5b6dfa9166e2c581c45c9c0cfc57b66",
+    "title": "Быстрая",
+    "description": "Для коротких фраз и компьютеров с небольшой памятью.",
+    "files": [
+      {
+        "name": "config.json",
+        "size": 2309,
+        "git_sha1": "867cf1a0fece1394e01d55e287ba2f09a577c046"
+      },
+      {
+        "name": "model.bin",
+        "size": 145217532,
+        "sha256": "d01c3014881c9c6f3133c182f3d2887eb6ca1c789a7538c5c007196857a0a6a9"
+      },
+      {
+        "name": "tokenizer.json",
+        "size": 2203239,
+        "git_sha1": "7818adb6de9fa3064d3ff81226fdd675be1f6344"
+      },
+      {
+        "name": "vocabulary.txt",
+        "size": 459861,
+        "git_sha1": "c9074644d9d1205686f16d411564729461324b75"
+      }
+    ]
+  },
+  {
+    "id": "small",
+    "repo": "Systran/faster-whisper-small",
+    "revision": "536b0662742c02347bc0e980a01041f333bce120",
+    "title": "Сбалансированная",
+    "description": "Хорошая отправная точка для русского и английского.",
+    "files": [
+      {
+        "name": "config.json",
+        "size": 2370,
+        "git_sha1": "e5047537059bd8f182d9ca64c470201585015187"
+      },
+      {
+        "name": "model.bin",
+        "size": 483546902,
+        "sha256": "3e305921506d8872816023e4c273e75d2419fb89b24da97b4fe7bce14170d671"
+      },
+      {
+        "name": "tokenizer.json",
+        "size": 2203239,
+        "git_sha1": "7818adb6de9fa3064d3ff81226fdd675be1f6344"
+      },
+      {
+        "name": "vocabulary.txt",
+        "size": 459861,
+        "git_sha1": "c9074644d9d1205686f16d411564729461324b75"
+      }
+    ]
+  },
+  {
+    "id": "turbo",
+    "repo": "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
+    "revision": "0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf",
+    "title": "Точная",
+    "description": "Для сложной речи. На процессоре обработка заметно дольше.",
+    "files": [
+      {
+        "name": "config.json",
+        "size": 2263,
+        "git_sha1": "0351d1d6870005e865747b781b5d7c23ea0459cd"
+      },
+      {
+        "name": "model.bin",
+        "size": 1617884929,
+        "sha256": "e76620f83d5f5b69efd3d87e3dc180c1bd21df9fbebacfd4335e5e1efcc018da"
+      },
+      {
+        "name": "preprocessor_config.json",
+        "size": 340,
+        "git_sha1": "931c77a740890c46365c7ae0c9d350ba3cca908f"
+      },
+      {
+        "name": "tokenizer.json",
+        "size": 2710337,
+        "git_sha1": "17456db595adc78a973f97d69d8cb50bc87c0b1c"
+      },
+      {
+        "name": "vocabulary.json",
+        "size": 1068114,
+        "git_sha1": "0adcd01e7c237205d593b707e66dd5d7bc785d2d"
+      }
+    ]
+  }
+]
