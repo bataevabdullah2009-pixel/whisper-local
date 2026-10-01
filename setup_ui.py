@@ -21,6 +21,7 @@ class ModelPage(QWidget):
 
     def __init__(self, config):
         super().__init__()
+        self.pending = None
         self.user_selected = bool(config.get("model_path"))
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 6, 0, 0)
@@ -67,6 +68,9 @@ class ModelPage(QWidget):
         layout.addLayout(row)
         self.message = text("Выберите модель или импортируйте уже скачанную.")
         layout.addWidget(self.message)
+        self.pending_notice = text("Есть незавершённая загрузка. Скачанные данные сохранены. Нажмите «Продолжить загрузку».", "detail")
+        self.pending_notice.hide()
+        layout.addWidget(self.pending_notice)
         self.progress = QProgressBar()
         self.progress.setAccessibleName("Загрузка модели")
         self.progress.setRange(0, 100)
@@ -93,7 +97,24 @@ class ModelPage(QWidget):
         self.practice.hide()
         layout.addWidget(self.practice)
         self.backend.currentIndexChanged.connect(self._backend_changed)
+        self.model.currentIndexChanged.connect(self.refresh_download_button)
         self._engine_note()
+
+    def restore_pending(self, pending):
+        if not pending or self.backend.findData(pending["backend"]) < 0:
+            return
+        self.pending = pending
+        self.user_selected = True
+        self.backend.setCurrentIndex(self.backend.findData(pending["backend"]))
+        self.model.setCurrentIndex(self.model.findData(pending["model_id"]))
+        self.device.setCurrentIndex(max(0, self.device.findData(pending["device"])))
+        self.refresh_download_button()
+
+    def refresh_download_button(self):
+        resume = (self.pending and self.pending["backend"] == self.backend.currentData()
+                  and self.pending["model_id"] == self.model.currentData())
+        self.download.setText("Продолжить загрузку" if resume else "Скачать и настроить")
+        self.pending_notice.setVisible(bool(resume))
 
     def _engine_note(self):
         cpp = self.backend.currentData() == "whispercpp"
@@ -119,6 +140,7 @@ class ModelPage(QWidget):
         self.device.setCurrentIndex(max(0, self.device.findData(device)))
         self._describe()
         self._engine_note()
+        self.refresh_download_button()
 
     def _selected(self, index):
         self.user_selected = True

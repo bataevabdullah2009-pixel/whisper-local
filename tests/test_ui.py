@@ -8,6 +8,7 @@ from unittest.mock import patch
 from PySide6.QtWidgets import QApplication
 
 from app import Controller
+from download_state import load_pending
 from runtime import ROOT
 from ui import SettingsWindow
 
@@ -53,6 +54,73 @@ class FirstRun(unittest.TestCase):
             self.assertEqual(controller.state, "recording")
             self.assertEqual(controller.config["model_path"], "")
             controller.state = "setup"
+            controller.shutdown()
+            controller.settings.hide()
+
+    def test_interrupted_download_is_offered_after_restart_without_auto_download(self):
+        with patch("setup_service.SetupService.start") as start, patch("app.set_autostart"):
+            controller = Controller(self.app, self.data, no_hook=True)
+            controller.download_model("base", "cpu")
+            controller.cancel_download()
+            controller.shutdown()
+            controller.settings.hide()
+            start.reset_mock()
+            restarted = Controller(self.app, self.data, no_hook=True)
+            page = restarted.settings.model_page
+            self.assertEqual(page.model.currentData(), "base")
+            self.assertEqual(page.device.currentData(), "cpu")
+            self.assertEqual(page.download.text(), "Продолжить загрузку")
+            self.assertFalse(page.pending_notice.isHidden())
+            page.set_hardware({"recommended_model": "turbo"})
+            self.assertEqual(page.model.currentData(), "base")
+            self.assertFalse(any(call.args[0] == "download" for call in start.call_args_list))
+            page.model.setCurrentIndex(page.model.findData("small"))
+            self.assertEqual(page.download.text(), "Скачать и настроить")
+            page.model.setCurrentIndex(page.model.findData("base"))
+            self.assertEqual(page.download.text(), "Продолжить загрузку")
+            restarted.download_model("base", "cpu")
+            self.assertEqual(start.call_args.args[0], "download")
+            restarted.shutdown()
+            restarted.settings.hide()
+
+    def test_state_write_failure_never_starts_download(self):
+        with patch("setup_service.SetupService.start") as start, patch("app.set_autostart"):
+            controller = Controller(self.app, self.data, no_hook=True)
+            start.reset_mock()
+            with patch("app.save_pending", side_effect=OSError("disk full")):
+                controller.download_model("base", "cpu")
+            start.assert_not_called()
+            self.assertTrue(controller.settings.model_page.download.isEnabled())
+            controller.shutdown()
+            controller.settings.hide()
+
+    def test_completed_download_intent_survives_busy_dictation_until_activation(self):
+        with patch("setup_service.SetupService.start"), patch("app.set_autostart"):
+            controller = Controller(self.app, self.data, no_hook=True)
+            controller.download_model("base", "cpu")
+            event = {"type": "downloaded", "path": "downloaded-model", "model_id": "base"}
+            with patch("app.validate_model", return_value=Path("downloaded-model")), patch.object(controller, "restart_worker"):
+                controller.state = "recording"
+                controller.setup_event(event)
+                self.assertIsNotNone(load_pending(self.data))
+                controller.state = "setup"
+                controller.setup_event(event)
+            self.assertIsNone(load_pending(self.data))
+            self.assertEqual(controller.config["model_id"], "base")
+            controller.shutdown()
+            controller.settings.hide()
+
+    def test_completed_download_keeps_intent_when_activation_settings_cannot_be_saved(self):
+        with patch("setup_service.SetupService.start"), patch("app.set_autostart"):
+            controller = Controller(self.app, self.data, no_hook=True)
+            controller.download_model("base", "cpu")
+            before = controller.config.copy()
+            with patch("app.validate_model", return_value=Path("downloaded-model")), patch.object(Path, "replace", side_effect=OSError("disk full")), patch.object(controller, "restart_worker") as restart:
+                controller.setup_event({"type": "downloaded", "path": "downloaded-model", "model_id": "base"})
+            restart.assert_not_called()
+            self.assertIsNotNone(load_pending(self.data))
+            self.assertEqual(controller.config, before)
+            self.assertIn("настройки не сохранены", controller.settings.model_page.message.text())
             controller.shutdown()
             controller.settings.hide()
 

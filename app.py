@@ -25,6 +25,7 @@ from ui import Overlay, SettingsWindow, app_icon, prepare_fonts
 import platform_native as native
 from runtime import APP_ID, data_directory, set_autostart, worker_command
 from model_manager import validate_model, model_backend
+from download_state import load_pending, save_pending, clear_pending
 from setup_service import SetupService
 from system_events import SystemEvents
 from memory_monitor import MemoryMonitor
@@ -169,6 +170,7 @@ class Controller(QObject):
         self.overlay.set_style(self.config.get("bar_style", "flow"))
         self.overlay.set_anchor(self.config.get("bar_position"))
         self.settings = SettingsWindow(self.config)
+        self.settings.model_page.restore_pending(load_pending(data_dir))
         self.sounds = SoundCues(data_dir, self.config)
         self.recorder = Recorder(self.config["max_recording_seconds"])
         self.paste_manager = PasteManager(self, self.can_paste)
@@ -326,13 +328,20 @@ class Controller(QObject):
             self.settings.model_page.message.setText("Дождитесь завершения текущей операции и повторите.")
             return
         self.pending_device = device
+        try:
+            pending = save_pending(self.data_dir, model_id, self.settings.model_page.backend.currentData(), device)
+        except (OSError, ValueError, StopIteration):
+            self.setup_failed("Не удалось сохранить загрузку. Проверьте доступ к папке данных и повторите.")
+            return
+        self.settings.model_page.pending = pending
+        self.settings.model_page.refresh_download_button()
         self.settings.model_page.user_selected = True
         self.settings.model_page.set_busy(True, "Подготавливаем загрузку…")
         self.setup.start("download", model_id, str(self.data_dir / "models"), self.settings.model_page.backend.currentData())
 
     def cancel_download(self):
         self.setup.stop()
-        self.settings.model_page.set_busy(False, "Загрузка остановлена. Нажмите «Скачать и настроить», чтобы продолжить.")
+        self.settings.model_page.set_busy(False, "Загрузка остановлена. Скачанные данные сохранены. Нажмите «Продолжить загрузку».")
 
     def setup_failed(self, message):
         self.settings.model_page.set_busy(False, message)
@@ -341,7 +350,13 @@ class Controller(QObject):
         if event.get("type") == "progress":
             self.settings.model_page.update_progress(event)
         elif event.get("type") == "downloaded":
-            self.activate_model(event["path"], self.pending_device, event["model_id"])
+            if self.activate_model(event["path"], self.pending_device, event["model_id"]):
+                try:
+                    clear_pending(self.data_dir)
+                except OSError:
+                    pass  # A stale intent is harmless: verified files need no network.
+                self.settings.model_page.pending = None
+                self.settings.model_page.refresh_download_button()
 
     def import_model(self, device):
         if self.state in ("recording", "waiting_model", "processing", "canceling", "pasting", "loading", "unloading"):
@@ -362,13 +377,20 @@ class Controller(QObject):
             return
         # A download may finish while the user is dictating with the old model.
         if self.state in ("recording", "waiting_model", "processing", "canceling", "pasting", "unloading"):
-            self.settings.model_page.set_busy(False, "Модель скачана. Завершите диктовку и нажмите «Скачать и настроить» ещё раз.")
+            self.settings.model_page.set_busy(False, "Модель скачана. Завершите диктовку и нажмите кнопку настройки модели ещё раз.")
             return
+        previous = {key: self.config[key] for key in ("model_path", "model_id", "device")}
+        previous_backend = self.active_backend
         self.config.update(model_path=str(path), model_id=model_id, device=device)
         self.active_backend = model_backend(path)
-        self.save_config()
+        if not self.save_config():
+            self.config.update(previous)
+            self.active_backend = previous_backend
+            self.setup_failed("Модель скачана, но настройки не сохранены. Проверьте доступ к папке данных и повторите настройку.")
+            return False
         self.settings.model_page.set_busy(False, "Проверяем модель. Первый запуск может занять несколько минут…")
         self.restart_worker()
+        return True
 
     def practice_recording(self):
         if self.state == "recording":
@@ -389,15 +411,18 @@ class Controller(QObject):
         self.overlay.set_wave_color(self.config.get("wave_color", "green"))
         self.overlay.set_style(self.config.get("bar_style", "flow"))
         self.sounds.prepare()
+        saved = False
         try:
             self.data_dir.mkdir(parents=True, exist_ok=True)
             temp = self.data_dir / "config.json.tmp"
             temp.write_text(json.dumps(self.config, ensure_ascii=False, indent=2), encoding="utf-8")
             temp.replace(self.data_dir / "config.json")
+            saved = True
             set_autostart(self.config["autostart"], self.data_dir)
         except Exception:
             LOG.exception("Cannot save settings")
             self.settings.set_status("Не удалось сохранить настройки. Проверьте доступ к папке программы.", True)
+        return saved
 
     def save_bar_position(self, anchor):
         self.config["bar_position"] = anchor
