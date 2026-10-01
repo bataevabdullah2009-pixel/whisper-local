@@ -49,6 +49,31 @@ class Compute(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "model damaged"):
             load_model("model", "cpu", fail, lambda d: {"int8"}, 2)
 
+    def test_requested_int8_uses_mixed_precision_on_cuda(self):
+        options = []
+        def factory(path, **kwargs):
+            options.append(kwargs)
+            return Model()
+        with patch("sys.platform", "win32"):
+            _, device, compute, fallback = load_model("model", "cuda", factory,
+                lambda d: {"float16", "int8_float16", "int8"}, 4, "int8")
+        self.assertEqual((device, compute, fallback), ("cuda", "int8_float16", False))
+        self.assertEqual(options[0]["compute_type"], "int8_float16")
+
+    def test_int8_gpu_failure_keeps_requested_cpu_int8(self):
+        def factory(path, **kwargs):
+            if kwargs["device"] == "cuda":
+                raise RuntimeError("not enough GPU memory")
+            return Model()
+        with patch("sys.platform", "win32"):
+            _, device, compute, fallback = load_model("model", "auto", factory,
+                lambda d: {"int8", "int8_float16"}, 4, "int8")
+        self.assertEqual((device, compute, fallback), ("cpu", "int8", True))
+
+    def test_unsupported_int8_does_not_silently_use_float32(self):
+        with self.assertRaises(ValueError):
+            load_model("model", "cpu", lambda *a, **kw: Model(), lambda d: {"float32"}, 2, "int8")
+
 
 class Paths(unittest.TestCase):
     def test_source_worker_is_current_python_not_personal_install(self):

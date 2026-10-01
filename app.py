@@ -27,6 +27,7 @@ from runtime import APP_ID, data_directory, set_autostart, worker_command
 from model_manager import validate_model
 from setup_service import SetupService
 from system_events import SystemEvents
+from memory_monitor import MemoryMonitor
 
 ROOT = Path(__file__).resolve().parent
 LOG = logging.getLogger("WhisperLocal")
@@ -43,6 +44,10 @@ def load_config(data_dir):
     default["hold_ms"] = max(120, min(700, int(default["hold_ms"])))
     default["max_recording_seconds"] = max(10, min(180, int(default["max_recording_seconds"])))
     default["sound_volume"] = max(0, min(100, int(default.get("sound_volume", 65))))
+    if default.get("compute_type") not in ("auto", "int8"):
+        default["compute_type"] = "auto"
+    if default.get("idle_unload_seconds") not in (0, 60, 300, 600, 1800):
+        default["idle_unload_seconds"] = 300
     return default
 
 
@@ -168,6 +173,8 @@ class Controller(QObject):
         self.settings.previewSoundRequested.connect(lambda kind: self.sounds.play(kind, force=True))
         self.settings.resetPositionRequested.connect(self.reset_bar_position)
         self.settings.retryRequested.connect(self.restart_worker)
+        self.settings.freeMemoryRequested.connect(self.release_memory)
+        self.settings.precisionRequested.connect(self.change_precision)
         self.settings.copyRequested.connect(self.copy_last)
         self.settings.recordRequested.connect(self.practice_recording)
         self.settings.permissionsRequested.connect(self.request_permissions)
@@ -192,6 +199,18 @@ class Controller(QObject):
         self.operation_timer = QTimer(self)
         self.operation_timer.setSingleShot(True)
         self.operation_timer.timeout.connect(self._timeout)
+        self.pending_audio = None
+        self.memory_released = False
+        self.wake_unloaded = False
+        self.idle_since = time.monotonic()
+        self.idle_timer = QTimer(self)
+        self.idle_timer.setInterval(1000)
+        self.idle_timer.timeout.connect(self.check_idle)
+        self.idle_timer.start()
+        self.memory_monitor = MemoryMonitor(self)
+        self.memory_monitor.measured.connect(self.memory_measured)
+        self.memory_monitor.set_pids(self.memory_pids())
+        self.memory_monitor.start()
         # Ensure a native window exists for Windows power broadcasts, even in tray mode.
         self.settings.winId()
         self.system_events = SystemEvents(app, self)
@@ -241,7 +260,7 @@ class Controller(QObject):
         self.start_hook()
 
     def download_model(self, model_id, device):
-        if self.state in ("recording", "processing", "canceling", "pasting", "loading"):
+        if self.state in ("recording", "waiting_model", "processing", "canceling", "pasting", "loading", "unloading"):
             self.settings.model_page.message.setText("Дождитесь завершения текущей операции и повторите.")
             return
         self.pending_device = device
@@ -263,7 +282,7 @@ class Controller(QObject):
             self.activate_model(event["path"], self.pending_device, event["model_id"])
 
     def import_model(self, device):
-        if self.state in ("recording", "processing", "canceling", "pasting", "loading"):
+        if self.state in ("recording", "waiting_model", "processing", "canceling", "pasting", "loading", "unloading"):
             self.settings.model_page.message.setText("Дождитесь завершения текущей операции и повторите.")
             return
         path = QFileDialog.getExistingDirectory(self.settings, "Папка модели faster-whisper")
@@ -277,7 +296,7 @@ class Controller(QObject):
             self.setup_failed(str(error))
             return
         # A download may finish while the user is dictating with the old model.
-        if self.state in ("recording", "processing", "canceling", "pasting"):
+        if self.state in ("recording", "waiting_model", "processing", "canceling", "pasting", "unloading"):
             self.settings.model_page.set_busy(False, "Модель скачана. Завершите диктовку и нажмите «Скачать и настроить» ещё раз.")
             return
         self.config.update(model_path=str(path), model_id=model_id, device=device)
@@ -290,7 +309,7 @@ class Controller(QObject):
             self.settings.scratch.setFocus()
             self.finish_recording()
             return
-        if self.state in ("processing", "canceling", "pasting", "loading"):
+        if self.state in ("waiting_model", "processing", "canceling", "pasting", "unloading"):
             return
         self.settings.scratch.setFocus()
         self.target = native.focus_target()
@@ -325,6 +344,60 @@ class Controller(QObject):
         self.settings.raise_()
         self.settings.activateWindow()
 
+    def memory_pids(self):
+        pid = int(self.worker.processId()) if self.worker else 0
+        return (os.getpid(), pid) if pid else (os.getpid(),)
+
+    def memory_measured(self, pids, values):
+        if not self.shutting_down and tuple(pids) == self.memory_pids():
+            self.settings.set_memory_usage(values)
+
+    def check_idle(self):
+        if self.shutting_down:
+            return
+        self.memory_monitor.set_pids(self.memory_pids())
+        available = (self.state == "idle" and self.ready and not self.suspended
+                     and not self.hold_timer.isActive() and not (self.hook and self.hook.state.held))
+        self.settings.free_memory.setEnabled(available)
+        self.settings.precision.setEnabled(self.state in ("idle", "unloaded", "setup", "error"))
+        seconds = self.config.get("idle_unload_seconds", 300)
+        if available and seconds and time.monotonic() - self.idle_since >= seconds:
+            self.release_memory()
+
+    def release_memory(self):
+        if (self.shutting_down or self.suspended or self.state != "idle" or not self.ready
+                or self.hold_timer.isActive() or (self.hook and self.hook.state.held)):
+            return False
+        self.memory_released = True
+        self.state = "unloading"
+        self.settings.free_memory.setEnabled(False)
+        self.settings.set_status("Освобождаем память модели…")
+        self._stop_worker()
+        if not self.worker:
+            self.model_unloaded()
+        return True
+
+    def model_unloaded(self):
+        self.state, self.ready = "unloaded", False
+        self.settings.set_status("Память модели освобождена. Можно начинать диктовку.")
+        self.settings.engine_label.setText("Модель выгружена. Она загрузится при следующей диктовке.")
+        self.settings.model_page.message.setText("Модель выгружена из памяти. Начните диктовку — загрузка произойдёт автоматически.")
+        self.settings.free_memory.setEnabled(False)
+        self.memory_monitor.set_pids(self.memory_pids())
+
+    def change_precision(self, precision):
+        if (precision not in ("auto", "int8") or self.state not in ("idle", "unloaded", "setup", "error")
+                or self.shutting_down or self.suspended or self.hold_timer.isActive()
+                or (self.hook and self.hook.state.held)):
+            self.settings.precision.blockSignals(True)
+            self.settings.precision.setCurrentIndex(max(0, self.settings.precision.findData(self.config["compute_type"])))
+            self.settings.precision.blockSignals(False)
+            return
+        self.config["compute_type"] = precision
+        self.save_config()
+        if self.state == "idle":
+            self.restart_worker()
+
     def tray_activated(self, reason):
         if reason in (QSystemTrayIcon.ActivationReason.Trigger, QSystemTrayIcon.ActivationReason.DoubleClick):
             self.show_settings()
@@ -349,7 +422,8 @@ class Controller(QObject):
 
     def system_interrupted(self):
         self.suspended = True
-        active = self.state in ("recording", "processing", "pasting")
+        self.wake_unloaded = self.memory_released and self.state in ("unloaded", "unloading")
+        active = self.state in ("recording", "waiting_model", "processing", "pasting")
         self.cancel(restart_asr=False)
         self.target = None
         self.state, self.ready = "suspended", False
@@ -366,11 +440,17 @@ class Controller(QObject):
         self.suspended = False
         if self.hook:
             self.start_hook()
-        self.restart_worker()
+        if self.wake_unloaded:
+            self.state = "unloading"
+            if not self.worker:
+                self.model_unloaded()
+        else:
+            self.restart_worker()
 
     def start_worker(self):
-        if self.shutting_down or self.suspended:
+        if self.shutting_down or self.suspended or self.worker:
             return
+        self.memory_released = False
         self.state, self.ready = "loading", False
         self.settings.model_page.practice.hide()
         self.settings.set_status("Подготавливаем локальное распознавание…")
@@ -399,9 +479,11 @@ class Controller(QObject):
         worker.finished.connect(lambda code, status: self.worker_finished(code, status, worker))
         worker.errorOccurred.connect(lambda error: self.worker_error(error, worker))
         command = worker_command("asr", "--model", self.config["model_path"],
-                                 "--device", self.config.get("device", "auto"))
+                                 "--device", self.config.get("device", "auto"),
+                                 "--compute-type", self.config.get("compute_type", "auto"))
         worker.setProgram(command[0])
         worker.setArguments(command[1:])
+        worker.started.connect(lambda: self.memory_monitor.set_pids(self.memory_pids()))
         worker.start()
         self.operation_timer.start(300000)
 
@@ -413,7 +495,7 @@ class Controller(QObject):
     def read_worker(self, source=None):
         if not self.worker or (source is not None and source is not self.worker):
             return
-        if self.worker_restart or self.state in ("canceling", "suspended") or self.shutting_down:
+        if self.worker_restart or self.state in ("canceling", "suspended", "unloading") or self.shutting_down:
             self.worker.readAllStandardOutput()
             return
         self.stdout_buffer += bytes(self.worker.readAllStandardOutput())
@@ -434,18 +516,25 @@ class Controller(QObject):
             return
         kind = event.get("type")
         if kind == "ready":
-            if self.state != "loading":
+            if self.state not in ("loading", "recording", "waiting_model"):
                 return
             self.operation_timer.stop()
-            self.state, self.ready = "idle", True
+            waiting = self.state == "waiting_model"
+            self.ready = True
+            if self.state == "loading":
+                self.state = "idle"
+            self.idle_since = time.monotonic()
             LOG.info("%s worker ready in %s seconds", event.get("device"), event.get("load_seconds"))
             self.device_description = "видеокарта NVIDIA" if event.get("device") == "cuda" else "процессор"
             self.settings.set_status(f"Готов к диктовке · {self.device_description}")
-            self.settings.engine_label.setText(f"Whisper · {self.device_description}\nМодель остаётся в памяти, пока приложение открыто.")
+            self.settings.engine_label.setText(f"Whisper · {self.device_description} · {event.get('compute_type', 'auto')}\nМодель загружена в память.")
             self.settings.model_page.set_ready(self.config["model_path"], self.device_description)
             if event.get("fallback"):
                 self.settings.model_page.message.setText("Ускорение NVIDIA недоступно. Модель готова и работает на процессоре.")
-            if self.overlay.isVisible() and self.overlay.mode == "loading":
+            if waiting:
+                audio, self.pending_audio = self.pending_audio, None
+                self.submit_audio(audio)
+            elif self.state == "idle" and self.overlay.isVisible() and self.overlay.mode == "loading":
                 self.overlay.present("ready", timeout=2)
         elif kind == "fatal":
             LOG.error("ASR initialization: %s", event.get("error"))
@@ -459,6 +548,7 @@ class Controller(QObject):
             if kind == "error":
                 LOG.error("ASR operation: %s", event.get("error"))
                 self.state = "idle"
+                self.idle_since = time.monotonic()
                 self.overlay.present("error", "Не удалось распознать речь. Попробуйте ещё раз.", timeout=6)
                 self._escape(False)
                 return
@@ -466,6 +556,7 @@ class Controller(QObject):
             LOG.info("Transcribed: %.3fs, %d characters", event.get("seconds", 0), len(text))
             if not text:
                 self.state = "idle"
+                self.idle_since = time.monotonic()
                 self._escape(False)
                 self.overlay.present("empty", "Попробуйте говорить ближе к микрофону.", timeout=3)
                 return
@@ -479,7 +570,7 @@ class Controller(QObject):
     def worker_error(self, error, source=None):
         if source is not None and source is not self.worker:
             return
-        if not self.shutting_down and not self.worker_restart and self.state not in ("error", "suspended"):
+        if not self.shutting_down and not self.worker_restart and self.state not in ("error", "suspended", "unloading"):
             LOG.error("Worker process error: %s", error)
             self.fail("Не удалось запустить локальный Whisper. Откройте настройки.")
 
@@ -495,11 +586,15 @@ class Controller(QObject):
             return
         if restart:
             self.start_worker()
+        elif self.state == "unloading":
+            self.model_unloaded()
         elif self.state != "error":
             LOG.error("Worker exited: %s", code)
             self.fail("Процесс Whisper остановился. Перезапустите его в настройках.")
 
     def restart_worker(self):
+        if self.shutting_down or self.suspended or self.state == "unloading":
+            return
         self.cancel(restart_asr=False)
         self.state, self.ready = "loading", False
         self._stop_worker(restart=True)
@@ -508,6 +603,7 @@ class Controller(QObject):
         """Kill native inference; reload only after process exit, without blocking Qt."""
         self.operation_timer.stop()
         self.request_id = None
+        self.pending_audio = None
         self.ready = False
         self.worker_restart = restart
         if self.worker:
@@ -529,7 +625,7 @@ class Controller(QObject):
             return
         if event == "down":
             # A second Alt press must not redirect a pending transcript to a new window.
-            if self.state not in ("recording", "processing", "canceling", "pasting"):
+            if self.state not in ("recording", "waiting_model", "processing", "canceling", "pasting"):
                 self.target = native.focus_target()
             self.hold_timer.start()
         elif event == "up":
@@ -550,7 +646,10 @@ class Controller(QObject):
             return
         if self.pause_action.isChecked():
             return
-        if not self.ready:
+        if self.state == "unloaded":
+            self.start_worker()
+        loading = self.state == "loading" and self.worker is not None and not self.worker_restart
+        if not self.ready and not loading:
             if self.state == "setup":
                 self.settings.show_page(1)
                 self.show_settings()
@@ -559,7 +658,7 @@ class Controller(QObject):
             else:
                 self.overlay.present("loading", timeout=5)
             return
-        if self.state != "idle":
+        if self.state != "idle" and not loading:
             return
         self.overlay.demo = False
         try:
@@ -608,16 +707,29 @@ class Controller(QObject):
         if self.recorder.overflow:
             LOG.warning("Microphone reported dropped frames")
         if audio.size < 4800:
-            self.state = "idle"
+            self.state = "idle" if self.ready else "loading"
+            self.idle_since = time.monotonic()
             self._escape(False)
             self.overlay.hide()
+            return
+        pcm = audio.astype("<f4", copy=False).tobytes()
+        if not self.ready:
+            self.pending_audio = pcm
+            self.state = "waiting_model"
+            self.overlay.present("loading", title="Подготавливаем модель…")
+            return
+        self.submit_audio(pcm)
+
+    def submit_audio(self, pcm):
+        if pcm is None:
+            self.fail("Запись недоступна. Начните диктовку заново.")
             return
         self.request_id = uuid.uuid4().hex
         self.state = "processing"
         self.overlay.present("processing")
         request = {"type": "transcribe", "id": self.request_id,
                    "language": self.config.get("language"),
-                   "audio": base64.b64encode(audio.astype("<f4", copy=False).tobytes()).decode("ascii")}
+                   "audio": base64.b64encode(pcm).decode("ascii")}
         if not self.worker or self.worker.state() != QProcess.ProcessState.Running:
             self.fail("Whisper остановился. Перезапустите его в настройках.")
             return
@@ -631,7 +743,8 @@ class Controller(QObject):
     def _pasted(self, success, reason):
         if self.state != "pasting":
             return
-        self.state = "idle"
+        self.state = "idle" if self.ready else "unloaded"
+        self.idle_since = time.monotonic()
         self._escape(False)
         if success:
             self.sounds.play("insert")
@@ -642,7 +755,7 @@ class Controller(QObject):
             self.settings.set_status(reason)
 
     def retry_paste(self):
-        if self.state != "idle" or not self.last_text or not self.can_paste():
+        if self.state not in ("idle", "unloaded") or not self.last_text or not self.can_paste():
             return
         self.target = native.focus_target()
         self.state = "pasting"
@@ -658,18 +771,23 @@ class Controller(QObject):
         self.settings.record_button.setText("Начать проверку микрофона")
         self.hold_timer.stop()
         self.paste_manager.cancel()
-        was_active = self.state in ("recording", "processing", "pasting")
+        was_active = self.state in ("recording", "waiting_model", "processing", "pasting")
+        self.pending_audio = None
         if self.state == "recording":
             self.meter_timer.stop()
             self.recorder.cancel()
-            self.state = "idle"
+            self.state = "idle" if self.ready else "loading"
+        elif self.state == "waiting_model":
+            self.state = "loading"
         elif self.state == "processing":
             self.state = "canceling"
             self.request_id = None
             self.operation_timer.stop()
             self.ready = False
         elif self.state == "pasting":
-            self.state = "idle"
+            self.state = "idle" if self.ready else "unloaded"
+        if self.state == "idle":
+            self.idle_since = time.monotonic()
         self._escape(False)
         if was_active:
             self.overlay.present("canceled", timeout=.9)
@@ -702,6 +820,8 @@ class Controller(QObject):
         self.hold_timer.stop()
         self.meter_timer.stop()
         self.operation_timer.stop()
+        self.idle_timer.stop()
+        self.memory_monitor.stop()
         self.recorder.cancel()
         self.paste_manager.cancel()
         if self.hook:

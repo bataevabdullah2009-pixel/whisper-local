@@ -1,0 +1,233 @@
+{
+  "platform": "Windows-11-10.0.26200-SP0",
+  "python": "3.12.10",
+  "ctranslate2": "4.8.2",
+  "cpu": "AMD64 Family 25 Model 33 Stepping 2, AuthenticAMD",
+  "model_sha256": "e76620f83d5f5b69efd3d87e3dc180c1bd21df9fbebacfd4335e5e1efcc018da",
+  "corpus_sha256": "8a3928b62eae8ab4d81025c84bb5110a33e40a2700210aef21a843cad2340800",
+  "audio_seconds": 56.975,
+  "fixtures": 9,
+  "repeats": 5,
+  "modes": [
+    {
+      "requested_compute": "float16",
+      "actual_compute": "float16",
+      "device": "cuda",
+      "cold_load_seconds": 3.828,
+      "loading_peak": {
+        "rss_bytes": 1783926784,
+        "dedicated_bytes": 2379780096,
+        "shared_bytes": 79691776
+      },
+      "idle": {
+        "rss_bytes": 751783936.0,
+        "dedicated_bytes": 2379780096.0,
+        "shared_bytes": 79691776.0
+      },
+      "inference_peak": {
+        "rss_bytes": 784830464,
+        "dedicated_bytes": 2480443392,
+        "shared_bytes": 79691776
+      },
+      "exit_seconds": 0.015,
+      "after_exit": {
+        "rss_bytes": 0,
+        "dedicated_bytes": 0,
+        "shared_bytes": 0
+      },
+      "round_seconds": [
+        2.422,
+        2.359,
+        2.391,
+        2.328,
+        2.375
+      ],
+      "median_seconds": 2.375,
+      "real_time_factor": 0.0417,
+      "quality": [
+        {
+          "fixture": 0,
+          "language": "ru",
+          "word_errors": 0,
+          "words": 11,
+          "char_errors": 0,
+          "chars": 64
+        },
+        {
+          "fixture": 1,
+          "language": "ru",
+          "word_errors": 0,
+          "words": 9,
+          "char_errors": 0,
+          "chars": 64
+        },
+        {
+          "fixture": 2,
+          "language": "ru",
+          "word_errors": 0,
+          "words": 7,
+          "char_errors": 0,
+          "chars": 57
+        },
+        {
+          "fixture": 3,
+          "language": "ru",
+          "word_errors": 0,
+          "words": 9,
+          "char_errors": 0,
+          "chars": 65
+        },
+        {
+          "fixture": 4,
+          "language": "ru",
+          "word_errors": 0,
+          "words": 10,
+          "char_errors": 0,
+          "chars": 67
+        },
+        {
+          "fixture": 5,
+          "language": "ru",
+          "word_errors": 0,
+          "words": 10,
+          "char_errors": 0,
+          "chars": 65
+        },
+        {
+          "fixture": 6,
+          "language": "ru",
+          "word_errors": 0,
+          "words": 11,
+          "char_errors": 0,
+          "chars": 63
+        },
+        {
+          "fixture": 7,
+          "language": "ru",
+          "word_errors": 0,
+          "words": 11,
+          "char_errors": 0,
+          "chars": 65
+        },
+        {
+          "fixture": 8,
+          "language": "en",
+          "word_errors": 0,
+          "words": 22,
+          "char_errors": 0,
+          "chars": 104
+        }
+      ]
+    },
+    {
+      "requested_compute": "int8",
+      "actual_compute": "int8_float16",
+      "device": "cuda",
+      "cold_load_seconds": 4.891,
+      "loading_peak": {
+        "rss_bytes": 1992814592,
+        "dedicated_bytes": 1406693376,
+        "shared_bytes": 79691776
+      },
+      "idle": {
+        "rss_bytes": 790827008.0,
+        "dedicated_bytes": 1272475648.0,
+        "shared_bytes": 79691776.0
+      },
+      "inference_peak": {
+        "rss_bytes": 824446976,
+        "dedicated_bytes": 1406693376,
+        "shared_bytes": 79691776
+      },
+      "exit_seconds": 0.031,
+      "after_exit": {
+        "rss_bytes": 0,
+        "dedicated_bytes": 0,
+        "shared_bytes": 0
+      },
+      "round_seconds": [
+        2.531,
+        2.375,
+        2.344,
+        2.531,
+        2.5
+      ],
+      "median_seconds": 2.5,
+      "real_time_factor": 0.0439,
+      "quality": [
+        {
+          "fixture": 0,
+          "language": "ru",
+          "word_errors": 0,
+          "words": 11,
+          "char_errors": 0,
+          "chars": 64
+        },
+        {
+          "fixture": 1,
+          "language": "ru",
+          "word_errors": 0,
+          "words": 9,
+          "char_errors": 0,
+          "chars": 64
+        },
+        {
+          "fixture": 2,
+          "language": "ru",
+          "word_errors": 0,
+          "words": 7,
+          "char_errors": 0,
+          "chars": 57
+        },
+        {
+          "fixture": 3,
+          "language": "ru",
+          "word_errors": 0,
+          "words": 9,
+          "char_errors": 0,
+          "chars": 65
+        },
+        {
+          "fixture": 4,
+          "language": "ru",
+          "word_errors": 0,
+          "words": 10,
+          "char_errors": 0,
+          "chars": 67
+        },
+        {
+          "fixture": 5,
+          "language": "ru",
+          "word_errors": 0,
+          "words": 10,
+          "char_errors": 0,
+          "chars": 65
+        },
+        {
+          "fixture": 6,
+          "language": "ru",
+          "word_errors": 0,
+          "words": 11,
+          "char_errors": 0,
+          "chars": 63
+        },
+        {
+          "fixture": 7,
+          "language": "ru",
+          "word_errors": 0,
+          "words": 11,
+          "char_errors": 0,
+          "chars": 65
+        },
+        {
+          "fixture": 8,
+          "language": "en",
+          "word_errors": 0,
+          "words": 22,
+          "char_errors": 0,
+          "chars": 104
+        }
+      ]
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 name: Desktop builds
 on:
   pull_request:
-    branches: [main, dev]
+    branches: [main, dev, 'codex/**']
   workflow_dispatch:
 
 permissions:
@@ -67,6 +67,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Packaged recognition smoke test failed.' }
           python scripts/smoke_reliability.py --worker dist/WhisperLocal/WhisperWorker.exe --audio build/jfk.wav
           if ($LASTEXITCODE -ne 0) { throw 'Packaged cancellation/reload test failed.' }
+          python scripts/smoke_memory.py --worker dist/WhisperLocal/WhisperWorker.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged memory lifecycle test failed.' }
       - name: macOS bundle smoke test
         if: runner.os == 'macOS'
         env:
@@ -75,6 +77,7 @@ jobs:
           "dist/Whisper Local.app/Contents/MacOS/WhisperLocal" --smoke-test --data-dir build/smoke
           python scripts/smoke_asr.py --worker "dist/Whisper Local.app/Contents/MacOS/WhisperWorker"
           python scripts/smoke_reliability.py --worker "dist/Whisper Local.app/Contents/MacOS/WhisperWorker" --audio build/jfk.wav
+          python scripts/smoke_memory.py --worker "dist/Whisper Local.app/Contents/MacOS/WhisperWorker"
       - name: Windows installer
         if: runner.os == 'Windows'
         shell: pwsh

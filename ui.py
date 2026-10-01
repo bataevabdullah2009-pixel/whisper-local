@@ -278,7 +278,8 @@ class SettingsWindow(QWidget):
     changed=Signal(); previewRequested=Signal(); retryRequested=Signal(); copyRequested=Signal()
     previewSoundRequested=Signal(str); resetPositionRequested=Signal()
     recordRequested=Signal(); permissionsRequested=Signal()
-    PAGE_NAMES=('Основные','Модель','Панель','Звуки','Система','Проверка диктовки')
+    freeMemoryRequested=Signal(); precisionRequested=Signal(str)
+    PAGE_NAMES=('Основные','Модель','Панель','Звуки','Система','Проверка диктовки','Память')
     def __init__(self,config):
         super().__init__(); self.config=config
         self.setWindowTitle('Whisper Local'); self.setWindowIcon(app_icon()); self.resize(900,700); self.setMinimumSize(860,680)
@@ -364,13 +365,32 @@ class SettingsWindow(QWidget):
         self.record_button=QPushButton('Начать проверку микрофона'); self.record_button.setObjectName('primary'); self.record_button.clicked.connect(self.recordRequested); testing.addWidget(self.record_button)
         self.latest_label=label('Esc отменяет запись. Обычные сочетания клавиш продолжают работать.','detail'); testing.addWidget(self.latest_label)
         self.copy=QPushButton('Скопировать последний текст'); self.copy.setEnabled(False); self.copy.clicked.connect(self.copyRequested); testing.addWidget(self.copy,0,Qt.AlignmentFlag.AlignRight); self.pages.addWidget(test)
+        memory=QWidget(); memory_layout=QVBoxLayout(memory); memory_layout.setContentsMargins(0,8,0,0); memory_layout.setSpacing(0)
+        self.ram_usage=label('Измеряем…','section')
+        self.add_row(memory_layout,'Оперативная память','Приложение и его процессы.\nОбщие страницы могут учитываться дважды.',self.ram_usage)
+        self.vram_usage=label('Измеряем…','section'); self.vram_usage.setMaximumWidth(270)
+        self.add_row(memory_layout,'Видеопамять','Отдельная память GPU и общая память\nиз RAM по счётчикам Windows.',self.vram_usage)
+        self.idle_unload=ChoiceBox(); self.idle_unload.setAccessibleName('Выгрузка модели после простоя'); self.idle_unload.setFixedWidth(225)
+        for title,seconds in (('Через 1 минуту',60),('Через 5 минут',300),('Через 10 минут',600),('Через 30 минут',1800),('Не выгружать',0)):
+            self.idle_unload.addItem(title,seconds)
+        self.idle_unload.setCurrentIndex(max(0,self.idle_unload.findData(config.get('idle_unload_seconds',300))))
+        self.add_row(memory_layout,'После простоя','Модель загрузится при новой диктовке.\nЗапись начнётся сразу; результат может задержаться.',self.idle_unload)
+        self.precision=ChoiceBox(); self.precision.setAccessibleName('Точность вычислений'); self.precision.setFixedWidth(225)
+        self.precision.addItem('Автоматически','auto'); self.precision.addItem('INT8 · меньше памяти','int8')
+        self.precision.setCurrentIndex(max(0,self.precision.findData(config.get('compute_type','auto'))))
+        self.add_row(memory_layout,'Режим вычислений','INT8 может менять скорость и точность.\nСмена режима перезагрузит активную модель.',self.precision,rule=False)
+        memory_layout.addStretch()
+        self.free_memory=QPushButton('Освободить память'); self.free_memory.setObjectName('primary'); self.free_memory.setEnabled(False)
+        self.free_memory.clicked.connect(self.freeMemoryRequested); memory_layout.addWidget(self.free_memory,0,Qt.AlignmentFlag.AlignRight)
+        self.pages.addWidget(memory)
         self.retry=QPushButton('Перезапустить распознавание'); self.retry.clicked.connect(self.retryRequested); self.retry.hide(); main.addWidget(self.retry)
         self.permission_note=label('','description'); self.permission_note.hide(); main.addWidget(self.permission_note)
         if native.IS_MAC:
             permissions=QPushButton('Разрешить горячую клавишу в macOS'); permissions.clicked.connect(self.permissionsRequested); main.addWidget(permissions)
         main.addWidget(label('Изменения сохраняются автоматически.','detail')); root.addWidget(content,1)
         self.refresh_microphones(); self.show_page(0)
-        for combo in (self.microphone,self.language,self.color,self.panel_style,self.sound_style): combo.currentIndexChanged.connect(self._save)
+        for combo in (self.microphone,self.language,self.color,self.panel_style,self.sound_style,self.idle_unload): combo.currentIndexChanged.connect(self._save)
+        self.precision.currentIndexChanged.connect(lambda:self.precisionRequested.emit(self.precision.currentData()))
         self.autostart.toggled.connect(self._save)
         self.sound_enabled.toggled.connect(self._save)
         self.sound_save_timer=QTimer(self); self.sound_save_timer.setSingleShot(True)
@@ -380,6 +400,15 @@ class SettingsWindow(QWidget):
     def _volume_changed(self,value):
         self.volume_label.setText(str(value)+'%')
         self.sound_save_timer.start(180)
+    def set_memory_usage(self,values):
+        def amount(value):
+            return 'Нет данных' if value is None else f'{value / 1024**2:.0f} МиБ'
+        self.ram_usage.setText(amount(values.get('rss_bytes')))
+        if native.IS_MAC:
+            self.vram_usage.setText('CPU · отдельная VRAM не используется')
+        else:
+            dedicated,shared=values.get('dedicated_bytes'),values.get('shared_bytes')
+            self.vram_usage.setText('Нет данных' if dedicated is None else f'{amount(dedicated)} отдельно\n{amount(shared)} из RAM')
     def _describe_sound(self):
         descriptions={'flow':'Сигналы из официальной веб-демонстрации Wispr Flow.',
                       'console':'Мягкие объёмные тона в духе игровых консолей.',
@@ -410,7 +439,8 @@ class SettingsWindow(QWidget):
         self.config.update(microphone=device,microphone_name=name,language=self.language.currentData(),
                            wave_color=self.color.currentData(),bar_style=self.panel_style.currentData(),
                            sound_enabled=self.sound_enabled.isChecked(),sound_style=self.sound_style.currentData(),
-                           sound_volume=self.sound_volume.value(),autostart=self.autostart.isChecked())
+                           sound_volume=self.sound_volume.value(),autostart=self.autostart.isChecked(),
+                           idle_unload_seconds=self.idle_unload.currentData())
         self.changed.emit()
     def set_status(self,text,error=False):
         self.status.setText(text); self.status.setStyleSheet('color:#A44332;' if error else 'color:#486449;'); self.retry.setVisible(error)
