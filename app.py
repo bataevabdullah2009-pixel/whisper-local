@@ -29,6 +29,7 @@ from setup_service import SetupService
 from system_events import SystemEvents
 from memory_monitor import MemoryMonitor
 from dictation_hotkey import parse_shortcut, normalize_config
+from user_dictionary import UserDictionary, normalize_config as normalize_dictionary_config
 
 ROOT = Path(__file__).resolve().parent
 LOG = logging.getLogger("WhisperLocal")
@@ -50,6 +51,7 @@ def load_config(data_dir):
     if default.get("idle_unload_seconds") not in (0, 60, 300, 600, 1800):
         default["idle_unload_seconds"] = 300
     normalize_config(default, native.IS_MAC)
+    normalize_dictionary_config(default)
     return default
 
 
@@ -143,6 +145,7 @@ class Controller(QObject):
         self.no_hook = no_hook
         self.hook_generation = 0
         self.config = load_config(data_dir)
+        self.dictionary = UserDictionary(self.config["dictionary_rules"], self.config["dictionary_enabled"])
         self.state = "loading"
         self.ready = False
         self.shutting_down = False
@@ -376,6 +379,9 @@ class Controller(QObject):
         self.begin_recording(manual=True)
 
     def save_config(self):
+        if (self.dictionary.rules != self.config["dictionary_rules"]
+                or self.dictionary.enabled != self.config["dictionary_enabled"]):
+            self.dictionary = UserDictionary(self.config["dictionary_rules"], self.config["dictionary_enabled"])
         self.overlay.set_wave_color(self.config.get("wave_color", "green"))
         self.overlay.set_style(self.config.get("bar_style", "flow"))
         self.sounds.prepare()
@@ -624,6 +630,7 @@ class Controller(QObject):
                 self._escape(False)
                 self.overlay.present("empty", "Попробуйте говорить ближе к микрофону.", timeout=3)
                 return
+            text = self.dictionary.apply(text)
             self.last_text = text
             self.copy_action.setEnabled(True)
             self.settings.copy.setEnabled(True)

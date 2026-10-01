@@ -39,6 +39,17 @@ are not logged. The last transcript stays in memory until exit. Data lives in
 `%LOCALAPPDATA%/WhisperLocalOpen` or `~/Library/Application Support/WhisperLocalOpen`.
 The original personal Windows installation is left separate.
 
+## User dictionary
+
+In **Словарь** (Dictionary), add a recognized phrase and its desired spelling, for example
+`опен ай` → `OpenAI`. Select a row to edit or delete it. A typed-text preview immediately
+shows the result of saved rules. The enable switch disables replacements while keeping the rules.
+
+Literal whole words/phrases match without regard to case; replacement spelling is exact.
+The longest phrase at a matching position wins; replacements never cascade. Both recognition
+backends use the same processed text for paste and manual copy. Rules persist only in local
+`config.json`; preview text is not saved. See [behavior and validation](docs/DICTIONARY.md).
+
 ## Memory
 
 The **Память** (Memory) page shows RSS RAM for the application and its processes,

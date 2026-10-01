@@ -73,7 +73,7 @@ audio and transcript text out of evidence.
 | Cold model/clipboard | Start after idle unload; stop before readiness; cancel or insert once; held modifiers delay paste and user clipboard is preserved |
 | Mac permissions/input | Microphone, Accessibility/Input Monitoring, actual Option/custom event tap, TextEdit/browser/editor/terminal paste; document Fn/media-key settings |
 
-This PR is stacked on the Metal branch and stays draft until these gates have evidence.
-The memory and Metal PRs remain draft. Physical Metal speed, representative Russian quality,
+The shortcut, memory and Metal PRs (#3–#5) were merged into their respective stack bases on
+2026-10-01. Their manual gates still need evidence. Physical Metal speed, representative Russian quality,
 microphone and paste checks in [MAC-METAL.md](MAC-METAL.md) remain required; no acceleration
 completion claim is made from CI.
