@@ -38,6 +38,9 @@ jobs:
       - name: Windows GPU runtime
         if: runner.os == 'Windows'
         run: python -m pip install -r requirements-gpu.txt
+      - name: Build pinned whisper.cpp with embedded Metal
+        if: runner.os == 'macOS'
+        run: python scripts/build_whispercpp.py
       - name: Unit and UI tests
         run: python -m unittest discover -s tests -v
       - name: Icons
@@ -48,7 +51,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: build/test-models
-          key: whisper-base-${{ hashFiles('model_catalog.json') }}
+          key: whisper-fixtures-${{ hashFiles('model_catalog.json', 'whispercpp_catalog.json') }}
       - name: Download verified public speech fixture
         run: python scripts/fetch_test_speech.py
       - name: Windows bundle smoke test
@@ -78,6 +81,18 @@ jobs:
           python scripts/smoke_asr.py --worker "dist/Whisper Local.app/Contents/MacOS/WhisperWorker"
           python scripts/smoke_reliability.py --worker "dist/Whisper Local.app/Contents/MacOS/WhisperWorker" --audio build/jfk.wav
           python scripts/smoke_memory.py --worker "dist/Whisper Local.app/Contents/MacOS/WhisperWorker"
+      - name: Mac whisper.cpp recognition, fallback and memory lifecycle
+        if: runner.os == 'macOS'
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python scripts/smoke_whispercpp.py --worker "dist/Whisper Local.app/Contents/MacOS/WhisperWorker"
+      - name: Mac default small model CPU and Metal timings
+        if: matrix.label == 'macOS-Apple-Silicon'
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python scripts/smoke_whispercpp.py --worker "dist/Whisper Local.app/Contents/MacOS/WhisperWorker" --model-id small --benchmark-only --output build/whispercpp-small-smoke.json
       - name: Windows installer
         if: runner.os == 'Windows'
         shell: pwsh
@@ -101,5 +116,7 @@ jobs:
           path: |
             dist/*Setup.exe
             dist/*.dmg
+            build/whispercpp-smoke.json
+            build/whispercpp-small-smoke.json
           if-no-files-found: error
           retention-days: 14

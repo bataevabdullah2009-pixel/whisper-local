@@ -20,7 +20,10 @@ Unavailable or unidentified input fields require manual copying.
 
 Windows supports CPU and NVIDIA CUDA with automatic CPU fallback if model loading or GPU warmup fails.
 The Windows bundle includes the GPU runtime; the NVIDIA driver is still required for GPU acceleration.
-Mac currently uses CPU / INT8 on both architectures. Apple GPU / Metal acceleration is not implemented.
+Mac whisper.cpp setup uses Metal after a real GPU kernel warmup, with explicit CPU fallback.
+Auto tries Metal on Apple Silicon and selects CPU on Intel; explicit Intel Metal can be slower than CPU.
+It requires a separate GGML model downloaded by the button or imported as a `.bin` file.
+Existing CTranslate2 models retain CPU/INT8 support. See [Mac backend validation](docs/MAC-METAL.md).
 On Mac grant Microphone, Accessibility and (if requested) Input Monitoring permissions.
 Preview packages are not publisher-signed or Apple-notarized yet.
 
@@ -33,7 +36,7 @@ The original personal Windows installation is left separate.
 
 The **Память** (Memory) page shows RSS RAM for the application and its processes,
 plus Windows dedicated/shared GPU memory. Unavailable counters are shown as unknown.
-The current Mac CPU engine does not use separate VRAM.
+Mac Metal GPU allocations are not currently measured separately; CPU uses no separate VRAM.
 
 Models unload after five idle minutes by default; select 1, 5, 10, 30 minutes or disable
 automatic unloading. **Освободить память** (Free memory) stops the model process while
@@ -41,13 +44,14 @@ keeping local model files and the last text. Recording, recognition and paste ar
 The next recording starts immediately while the model loads; recognition waits for readiness.
 Esc discards waiting audio. The first result after unloading can take longer.
 
-Optional INT8 mode reloads the active model. Automatic mode retains NVIDIA FP16 and CPU INT8
+For faster-whisper, optional INT8 mode reloads the active model. Automatic mode retains NVIDIA FP16 and CPU INT8
 where supported. See [measurements and limits](docs/MEMORY.md) for memory, speed and fixture WER.
 
 ## Development
 
 Use Python 3.12. Install `requirements.txt`; Windows NVIDIA support additionally uses `requirements-gpu.txt`.
-Start `python app.py`. Build on the target OS:
+On Mac first build the pinned bridge with `python scripts/build_whispercpp.py` (Xcode command line
+tools, CMake and Git are development requirements). Start `python app.py`. Build on the target OS:
 
 ```bash
 python -m pip install -r requirements-build.txt

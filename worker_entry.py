@@ -15,6 +15,11 @@ def main():
     os.environ.update(HF_HUB_DISABLE_TELEMETRY="1", DO_NOT_TRACK="1")
     kind = sys.argv.pop(1)
     if kind == "asr":
+        from model_manager import model_backend
+        index = sys.argv.index("--model")
+        if model_backend(sys.argv[index + 1]) == "whispercpp":
+            from whispercpp_worker import main as recognize
+            return recognize()
         from asr_worker import main as recognize
         return recognize()
     if kind == "probe":
@@ -24,7 +29,8 @@ def main():
     if kind == "download":
         from model_manager import download_model
         try:
-            path = download_model(sys.argv[1], Path(sys.argv[2]), emit)
+            backend = sys.argv[3] if len(sys.argv) > 3 else "faster-whisper"
+            path = download_model(sys.argv[1], Path(sys.argv[2]), emit, backend)
             emit({"type": "downloaded", "path": str(path), "model_id": sys.argv[1]})
             return 0
         except Exception as error:

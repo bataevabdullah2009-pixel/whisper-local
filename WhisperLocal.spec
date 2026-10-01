@@ -5,10 +5,17 @@ import sys
 from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_submodules, copy_metadata
 
 root = Path(SPECPATH)
-data = [(str(root / name), ".") for name in ("config.example.json", "model_catalog.json")]
+data = [(str(root / name), ".") for name in ("config.example.json", "model_catalog.json", "whispercpp_catalog.json")]
 data += [(str(root / "assets/sounds"), "assets/sounds")]
 data += collect_data_files("faster_whisper") + collect_data_files("certifi")
 binaries = collect_dynamic_libs("ctranslate2") + collect_dynamic_libs("onnxruntime")
+if sys.platform == "darwin":
+    bridge = root / "build/native/libwhisperlocal.dylib"
+    if not bridge.is_file():
+        raise RuntimeError("Run scripts/build_whispercpp.py before packaging a Mac build")
+    binaries += [(str(bridge), "native")]
+    data += [(str(root / "build/native/whispercpp-LICENSE.txt"), "native"),
+             (str(root / "build/native/whispercpp-version.json"), "native")]
 for package in ("faster-whisper", "ctranslate2", "huggingface-hub", "tokenizers", "onnxruntime", "av"):
     data += copy_metadata(package)
 if sys.platform == "win32":

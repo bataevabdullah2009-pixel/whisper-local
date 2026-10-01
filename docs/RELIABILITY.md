@@ -77,4 +77,5 @@ technical error codes. Do not attach microphone audio or private transcripts.
 | Each OS, clipboard/modifiers/offline | Copy other content while paste is queued, hold modifiers, cancel, and disconnect network after setup; user clipboard preserved, no Enter sent, next dictation succeeds | Pending |
 
 Keep the PR in draft until these real-machine gates have evidence. Signing and public distribution belong
-to the separate public-release task; Metal acceleration belongs to the separate Mac acceleration task.
+to the separate public-release task; [Metal / whisper.cpp](MAC-METAL.md) has additional GPU and
+performance gates in the separate Mac acceleration PR.
