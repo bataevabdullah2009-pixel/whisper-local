@@ -6,7 +6,7 @@
   or no automatic unload. Idle time starts at model readiness and resets after recording,
   cancellation and paste. Recording, recognition, queued cold audio, paste and a held hotkey
   protect the model from both automatic and manual unloading.
-- **Освободить память** terminates the recognizer process and releases its allocator and CUDA
+- **Освободить память** terminates the recognizer process and releases its allocator and GPU
   context. Model files, device/precision settings and the last result remain available.
   An unloaded model stays unloaded across sleep/wake. Unexpected exit remains an error.
 - The next recording starts while the model loads. Releasing the hotkey before readiness
@@ -18,9 +18,10 @@
   which is included. Windows dedicated/shared GPU bytes come from PID-filtered WDDM PDH
   counters across adapters, using language-neutral names. Driver/counter failure is unknown.
   Sampling runs off the UI thread every two seconds; stale worker snapshots are discarded.
-- The current Mac backend runs on CPU. RAM is measured on both architectures; separate VRAM
-  is not used. Apple GPU/Metal and whisper.cpp belong to the next improvement.
-- `compute_type: auto` retains the existing policy: NVIDIA FP16, supported CPU INT8, otherwise
+- The CTranslate2 Mac backend runs on CPU; [whisper.cpp / Metal](MAC-METAL.md) is a separate
+  choice with its own GGML models. RAM is measured on both architectures; separate Metal GPU
+  allocations are not measured. CPU uses no separate VRAM.
+- For CTranslate2, `compute_type: auto` retains the existing policy: NVIDIA FP16, supported CPU INT8, otherwise
   CPU FP32. Optional `int8` requests CUDA `int8_float16` or CPU `int8`; the actual type is shown
   in System settings. GPU load/warmup failure keeps CPU fallback. Unsupported CPU INT8 fails
   explicitly, so select Auto. Changing precision reloads only an active idle model.

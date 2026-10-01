@@ -43,7 +43,7 @@ keeping local model files and the last text. Recording, recognition and paste ar
 The next recording starts immediately while the model loads; recognition waits for readiness.
 Esc discards waiting audio. The first result after unloading can take longer.
 
-Optional INT8 mode reloads the active model. Automatic mode retains NVIDIA FP16 and CPU INT8
+For faster-whisper, optional INT8 mode reloads the active model. Automatic mode retains NVIDIA FP16 and CPU INT8
 where supported. See [measurements and limits](docs/MEMORY.md) for memory, speed and fixture WER.
 
 ## Development
