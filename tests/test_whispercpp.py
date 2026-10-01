@@ -75,7 +75,7 @@ class BackendReadiness(unittest.TestCase):
 
     def test_mac_metal_is_ready_only_after_actual_warmup(self):
         model = self.model()
-        with patch("sys.platform", "darwin"):
+        with patch("sys.platform", "darwin"), patch("platform.machine", return_value="arm64"):
             result, device, compute, fallback = load_cpp_model("model.bin", "auto", 4, lambda *a: model)
         self.assertEqual((device, compute, fallback), ("metal", "float16", False))
         self.assertIs(result, model)
@@ -92,9 +92,18 @@ class BackendReadiness(unittest.TestCase):
 
     def test_enumeration_without_active_metal_context_reports_cpu(self):
         model = self.model(metal=False)
-        with patch("sys.platform", "darwin"):
+        with patch("sys.platform", "darwin"), patch("platform.machine", return_value="arm64"):
             _, device, _, fallback = load_cpp_model("model.bin", "auto", 4, lambda *a: model)
         self.assertEqual((device, fallback), ("cpu", True))
+
+    def test_intel_auto_prefers_cpu_but_explicit_metal_is_available(self):
+        factory = Mock(return_value=self.model(metal=False))
+        with patch("sys.platform", "darwin"), patch("platform.machine", return_value="x86_64"):
+            _, device, _, fallback = load_cpp_model("model.bin", "auto", 4, factory)
+            self.assertEqual((device, fallback), ("cpu", False))
+            self.assertFalse(factory.call_args.args[1])
+            load_cpp_model("model.bin", "metal", 4, factory)
+            self.assertTrue(factory.call_args.args[1])
 
     def test_forced_cpu_never_initializes_metal(self):
         factory = Mock(return_value=self.model(metal=False))

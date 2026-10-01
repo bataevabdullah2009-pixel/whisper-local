@@ -21,6 +21,7 @@ Unavailable or unidentified input fields require manual copying.
 Windows supports CPU and NVIDIA CUDA with automatic CPU fallback if model loading or GPU warmup fails.
 The Windows bundle includes the GPU runtime; the NVIDIA driver is still required for GPU acceleration.
 Mac whisper.cpp setup uses Metal after a real GPU kernel warmup, with explicit CPU fallback.
+Auto tries Metal on Apple Silicon and selects CPU on Intel; explicit Intel Metal can be slower than CPU.
 It requires a separate GGML model downloaded by the button or imported as a `.bin` file.
 Existing CTranslate2 models retain CPU/INT8 support. See [Mac backend validation](docs/MAC-METAL.md).
 On Mac grant Microphone, Accessibility and (if requested) Input Monitoring permissions.

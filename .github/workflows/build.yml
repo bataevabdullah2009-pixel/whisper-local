@@ -88,7 +88,7 @@ jobs:
         run: |
           python scripts/smoke_whispercpp.py --worker "dist/Whisper Local.app/Contents/MacOS/WhisperWorker"
       - name: Mac default small model CPU and Metal timings
-        if: runner.os == 'macOS'
+        if: matrix.label == 'macOS-Apple-Silicon'
         env:
           QT_QPA_PLATFORM: offscreen
         run: |

@@ -39,7 +39,7 @@ def main():
             if json.loads(line).get("type") == "downloaded"))
     pcm, duration = read_audio(args.audio)
     reports = []
-    for device in ("cpu", "auto"):
+    for device in ("cpu", "metal"):
         worker = Worker(model, device, "auto", args.worker)
         try:
             ready = worker.receive()
@@ -61,7 +61,7 @@ def main():
                 result = worker.transcribe(samples, "en", name)
                 assert bool(result["text"].strip()) == (name != "silence")
                 del result
-            reports.append({"ready": ready, "speech_seconds": duration,
+            reports.append({"requested_device": device, "ready": ready, "speech_seconds": duration,
                 "median_seconds": round(statistics.median(timings), 3), "speech_silence": "passed",
                 "worker_inference_peak": worker.probe.summary(inference_started, time.monotonic())})
         finally:

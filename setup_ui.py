@@ -130,7 +130,8 @@ class ModelPage(QWidget):
     def set_hardware(self, info):
         if native.IS_MAC:
             chip = "Apple Silicon" if info.get("architecture") == "arm64" else "Intel"
-            self.hardware.setText(f"Mac · {chip} · Metal / CPU · backend проверим при запуске модели")
+            mode = "Metal / CPU · проверим при запуске модели" if chip == "Apple Silicon" else "Автоматически — CPU; Metal можно выбрать"
+            self.hardware.setText(f"Mac · {chip} · {mode}")
         else:
             self.hardware.setText("Windows · NVIDIA обнаружена; ускорение проверим при запуске модели"
                                   if info.get("cuda") else "Windows · распознавание на процессоре")

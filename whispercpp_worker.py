@@ -3,6 +3,7 @@ import argparse
 import base64
 import json
 import os
+import platform
 import sys
 import time
 
@@ -13,7 +14,8 @@ from whispercpp_backend import WhisperCpp
 
 def load_cpp_model(path, preference, threads, factory=WhisperCpp):
     fallback = False
-    candidates = (True, False) if preference != "cpu" and sys.platform == "darwin" else (False,)
+    gpu_requested = preference == "metal" or (preference == "auto" and platform.machine() == "arm64")
+    candidates = (True, False) if gpu_requested and sys.platform == "darwin" else (False,)
     for gpu in candidates:
         model = None
         try:

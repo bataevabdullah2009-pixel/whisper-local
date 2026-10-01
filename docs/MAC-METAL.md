@@ -8,7 +8,9 @@ FP16 and Q8_0 files are also supported. The separate faster-whisper choice retai
 CTranslate2 folders and their CPU/INT8 behavior. Models are never converted, replaced or
 downloaded just by opening settings or updating the application.
 
-Auto and GPU/Metal try a local GPU context and an actual encoder/decoder warmup. Readiness
+On Apple Silicon, Auto tries a local GPU context and an actual encoder/decoder warmup.
+Intel Auto selects CPU: its hosted GPU was slower than CPU on the base fixture. Explicit
+GPU/Metal remains available on both architectures. Readiness
 reports the backend of the initialized context; device enumeration/build flags alone do not
 prove acceleration. Metal initialization/kernel failure closes the failed context and retries
 the same local model on CPU. CPU and Apple Silicon Metal contexts use upstream's default
@@ -58,11 +60,11 @@ python scripts/smoke_whispercpp.py --model /path/ggml-base.bin --require-metal
 ```
 
 The smoke check uses existing `build/jfk.wav`, the checksum-pinned public fixture from the
-reliability checks. It measures CPU and Auto separately, requires speech and empty silence,
+reliability checks. It measures CPU and explicit Metal separately, requires speech and empty silence,
 checks cancellation/reload, next speech, idle/manual unload and cold recording. Reports contain
 backend and timings, never decoded text. It does not open a microphone or perform native paste.
-CI runs it on the bundled helper for both Mac architectures, and separately compares CPU/Auto
-timings on the default small model. Metal is not guaranteed to be faster on small/short workloads;
+CI runs it on the bundled helper for both Mac architectures, and separately compares CPU/Metal
+timings on the default small model on Apple Silicon. Metal is not guaranteed to be faster on small/short workloads;
 the CPU selection remains available. If a hosted runner exposes no Metal
 GPU, the report says `unavailable_on_runner` and checks CPU fallback; that is not Metal execution
 evidence and does not support a speedup claim.
