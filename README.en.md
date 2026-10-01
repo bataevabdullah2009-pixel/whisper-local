@@ -29,6 +29,21 @@ are not logged. The last transcript stays in memory until exit. Data lives in
 `%LOCALAPPDATA%/WhisperLocalOpen` or `~/Library/Application Support/WhisperLocalOpen`.
 The original personal Windows installation is left separate.
 
+## Memory
+
+The **Память** (Memory) page shows RSS RAM for the application and its processes,
+plus Windows dedicated/shared GPU memory. Unavailable counters are shown as unknown.
+The current Mac CPU engine does not use separate VRAM.
+
+Models unload after five idle minutes by default; select 1, 5, 10, 30 minutes or disable
+automatic unloading. **Освободить память** (Free memory) stops the model process while
+keeping local model files and the last text. Recording, recognition and paste are protected.
+The next recording starts immediately while the model loads; recognition waits for readiness.
+Esc discards waiting audio. The first result after unloading can take longer.
+
+Optional INT8 mode reloads the active model. Automatic mode retains NVIDIA FP16 and CPU INT8
+where supported. See [measurements and limits](docs/MEMORY.md) for memory, speed and fixture WER.
+
 ## Development
 
 Use Python 3.12. Install `requirements.txt`; Windows NVIDIA support additionally uses `requirements-gpu.txt`.

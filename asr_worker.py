@@ -11,7 +11,7 @@ import time
 from runtime import prepare_cuda
 
 
-def load_model(path, preference, factory, supported, threads):
+def load_model(path, preference, factory, supported, threads, precision="auto"):
     """Probe by loading AND running kernels; device enumeration alone isn't enough."""
     import numpy as np
     fallback = False
@@ -19,14 +19,21 @@ def load_model(path, preference, factory, supported, threads):
         model = None
         try:
             types = supported(device)
-            compute_type = "float16" if device == "cuda" and "float16" in types else (
-                "int8" if "int8" in types else "float32")
+            if precision == "int8":
+                compute_type = "int8_float16" if device == "cuda" else "int8"
+            elif precision != "auto":
+                compute_type = precision
+            else:
+                compute_type = "float16" if device == "cuda" and "float16" in types else (
+                    "int8" if "int8" in types else "float32")
+            if compute_type not in types:
+                raise ValueError("Requested precision is unavailable on this device")
             model = factory(path, device=device, compute_type=compute_type,
                             local_files_only=True, num_workers=1, cpu_threads=threads)
             segments, _ = model.transcribe(np.zeros(8000, dtype=np.float32), language="ru",
                 beam_size=1, vad_filter=False, condition_on_previous_text=False)
             list(segments)
-            return model, device, compute_type, fallback
+            return model, device, model.model.compute_type if hasattr(model, "model") else compute_type, fallback
         except Exception:
             if device == "cpu":
                 raise
@@ -45,6 +52,7 @@ def main() -> int:
     parser.add_argument("--model", required=True)
     parser.add_argument("--cuda", default="")
     parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
+    parser.add_argument("--compute-type", choices=("auto", "int8", "float16", "float32", "int8_float16"), default="auto")
     args = parser.parse_args()
     os.environ.update(HF_HUB_OFFLINE="1", HF_HUB_DISABLE_TELEMETRY="1", DO_NOT_TRACK="1")
     dll_handles = prepare_cuda(args.cuda)
@@ -63,7 +71,7 @@ def main() -> int:
             raise FileNotFoundError("Не найдена локальная модель Whisper")
         model, device, compute_type, fallback = load_model(
             args.model, args.device, WhisperModel, ctranslate2.get_supported_compute_types,
-            max(1, min(8, (os.cpu_count() or 2) // 2)))
+            max(1, min(8, (os.cpu_count() or 2) // 2)), args.compute_type)
         get_speech_timestamps(np.zeros(16000, dtype=np.float32), VadOptions())
         emit({"type": "ready", "device": device, "compute_type": compute_type, "fallback": fallback,
               "load_seconds": round(time.monotonic() - started, 2)})

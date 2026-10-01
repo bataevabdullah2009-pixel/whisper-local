@@ -2,6 +2,8 @@
   "model_path": "",
   "model_id": "small",
   "device": "auto",
+  "compute_type": "auto",
+  "idle_unload_seconds": 300,
   "language": "ru",
   "wave_color": "green",
   "bar_style": "flow",
