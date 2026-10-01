@@ -14,7 +14,8 @@
   or failure during stop discards the recording. Abort/close failures cannot retain its PCM.
   A late callback from a previous recording cannot enter a new recording.
 - Windows compares UI Automation process/runtime IDs as well as HWNDs. Two fields within one
-  renderer/window are different targets. Unknown, protected or non-edit targets require manual copying.
+  renderer/window are different targets. A whole browser document without an editing provider is not
+  an identified field. Unknown, protected or non-edit targets require manual copying.
   macOS retains its Accessibility element comparison and falls back to manual copying if unavailable.
 - Cancellation restores the clipboard immediately when the application still owns its contents.
   Clipboard changes by the user are preserved. Delayed paste is never replayed after the deadline.
@@ -25,7 +26,7 @@ Windows source checkout, Python 3.12.14, faster-whisper 1.2.1 and the pinned Whi
 
 | Check | Result |
 | --- | --- |
-| Unit/UI suite | 54 tests passed |
+| Unit/UI suite | 55 tests passed |
 | Real CPU recognition cancellation | Process exit in 0.062 seconds; model reload, next public speech and empty silence passed |
 | Real NVIDIA CUDA recognition cancellation | Process exit in 0.094 seconds; model reload, next public speech and empty silence passed |
 | Native Windows UI Automation and SendInput | Two Qt fields sharing HWNDs distinguished; changed field refused; exact paste and clipboard restoration passed |

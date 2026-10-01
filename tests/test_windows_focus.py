@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 if sys.platform == "win32":
     import windows_native as native
+    import windows_focus
 
 
 @unittest.skipUnless(sys.platform == "win32", "Windows UI Automation boundary")
@@ -30,3 +31,8 @@ class FieldIdentity(unittest.TestCase):
         target = (123, 456, (789, (42, 1)))
         with patch.object(native, "focus_target", return_value=(123, 456, (790, (42, 1)))):
             self.assertFalse(native.same_target(target))
+
+    def test_whole_browser_document_without_editing_pattern_is_not_an_input_field(self):
+        with patch.object(windows_focus, "_integer_property", side_effect=[50030, 0]), patch.object(
+                windows_focus, "_method", return_value=lambda *args: -1):
+            self.assertFalse(windows_focus._editable(None))

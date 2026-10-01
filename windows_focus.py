@@ -53,6 +53,25 @@ def _integer_property(element, slot):
     return value.value
 
 
+def _editable(element):
+    control_type = _integer_property(element, 21)
+    if _integer_property(element, 35):  # CurrentIsPassword
+        return False
+    if control_type == 50004:  # UIA_EditControlTypeId
+        return True
+    if control_type != 50030:  # UIA_DocumentControlTypeId
+        return False
+    # A browser's whole document is not proof of an identified input field.
+    # Only an editing provider (UIA_TextEditPatternId) can authorize document paste.
+    pattern = C.c_void_p()
+    try:
+        return (_method(element, 16, C.c_int, C.POINTER(C.c_void_p))(
+            element, 10032, C.byref(pattern)) >= 0 and bool(pattern))
+    finally:
+        if pattern:
+            _method(pattern, 2)(pattern)
+
+
 def _runtime_id(element):
     array = C.c_void_p()
     try:
@@ -93,8 +112,7 @@ def focused_edit_key():
         if (_method(automation, 8, C.POINTER(C.c_void_p))(
                 automation, C.byref(element)) < 0 or not element):
             return None
-        # UIA_EditControlTypeId / UIA_DocumentControlTypeId (incl. terminals).
-        if _integer_property(element, 21) not in (50004, 50030) or _integer_property(element, 35):
+        if not _editable(element):
             return None
         runtime_id = _runtime_id(element)
         return (_integer_property(element, 20), runtime_id) if runtime_id else None
