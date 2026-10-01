@@ -20,8 +20,11 @@ def focus_target():
     application = AppKit.NSWorkspace.sharedWorkspace().frontmostApplication()
     if application is None:
         return 0, None
-    error, element = AX.AXUIElementCopyAttributeValue(
-        AX.AXUIElementCreateSystemWide(), AX.kAXFocusedUIElementAttribute, None)
+    try:
+        error, element = AX.AXUIElementCopyAttributeValue(
+            AX.AXUIElementCreateSystemWide(), AX.kAXFocusedUIElementAttribute, None)
+    except Exception:
+        return int(application.processIdentifier()), None
     return int(application.processIdentifier()), element if error == 0 else None
 
 

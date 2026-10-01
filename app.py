@@ -26,6 +26,7 @@ import platform_native as native
 from runtime import APP_ID, data_directory, set_autostart, worker_command
 from model_manager import validate_model
 from setup_service import SetupService
+from system_events import SystemEvents
 
 ROOT = Path(__file__).resolve().parent
 LOG = logging.getLogger("WhisperLocal")
@@ -48,20 +49,24 @@ def load_config(data_dir):
 class PasteManager(QObject):
     finished = Signal(bool, str)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, allowed=None):
         super().__init__(parent)
         self.generation = 0
+        self.allowed = allowed or (lambda: True)
+        self.restore_pending = None
 
     def cancel(self):
         self.generation += 1
+        if self.restore_pending:
+            self.restore_pending()
 
     def paste(self, text, target):
-        self.generation += 1
+        self.cancel()
         generation = self.generation
         deadline = time.monotonic() + 3.0
 
         def attempt():
-            if generation != self.generation:
+            if not self.allowed() or generation != self.generation:
                 return
             if not native.same_target(target):
                 self.finished.emit(False, "Поле ввода изменилось. Нажмите «Копировать» и вставьте текст.")
@@ -82,6 +87,8 @@ class PasteManager(QObject):
             sequence = native.clipboard_sequence()
 
             def restore():
+                if self.restore_pending is restore:
+                    self.restore_pending = None
                 if native.clipboard_sequence() != sequence:
                     return  # Never overwrite something the user copied in the meantime.
                 old = QMimeData()
@@ -89,9 +96,15 @@ class PasteManager(QObject):
                     old.setData(name, value)
                 clipboard.setMimeData(old)
 
+            self.restore_pending = restore
+
             def send():
-                if generation != self.generation:
+                if not self.allowed() or generation != self.generation:
                     restore()
+                    return
+                if time.monotonic() >= deadline:
+                    restore()
+                    self.finished.emit(False, "Вставка задержалась. Текст доступен для копирования.")
                     return
                 if not native.same_target(target):
                     restore()
@@ -124,6 +137,8 @@ class Controller(QObject):
         self.state = "loading"
         self.ready = False
         self.shutting_down = False
+        self.suspended = False
+        self.worker_restart = False
         self.request_id = None
         self.last_text = ""
         self.target = None
@@ -140,7 +155,7 @@ class Controller(QObject):
         self.settings = SettingsWindow(self.config)
         self.sounds = SoundCues(data_dir, self.config)
         self.recorder = Recorder(self.config["max_recording_seconds"])
-        self.paste_manager = PasteManager(self)
+        self.paste_manager = PasteManager(self, self.can_paste)
         self.paste_manager.finished.connect(self._pasted)
         self.overlay.cancelRequested.connect(self.cancel)
         self.overlay.finishRequested.connect(self.finish_if_recording)
@@ -177,6 +192,11 @@ class Controller(QObject):
         self.operation_timer = QTimer(self)
         self.operation_timer.setSingleShot(True)
         self.operation_timer.timeout.connect(self._timeout)
+        # Ensure a native window exists for Windows power broadcasts, even in tray mode.
+        self.settings.winId()
+        self.system_events = SystemEvents(app, self)
+        self.system_events.interrupted.connect(self.system_interrupted)
+        self.system_events.resumed.connect(self.system_resumed)
         self.hook = None
         if not no_hook:
             self.start_hook()
@@ -323,7 +343,34 @@ class Controller(QObject):
             return
         self.overlay.preview()
 
+    def can_paste(self):
+        return (not self.shutting_down and not self.suspended
+                and self.system_events.check())
+
+    def system_interrupted(self):
+        self.suspended = True
+        active = self.state in ("recording", "processing", "pasting")
+        self.cancel(restart_asr=False)
+        self.target = None
+        self.state, self.ready = "suspended", False
+        self._stop_worker()
+        if self.hook:
+            self.hook.state.held = False
+            self.hook.state.canceled = True
+        if active:
+            self.overlay.present("canceled", "Диктовка отменена при переходе в сон.", timeout=3)
+
+    def system_resumed(self):
+        if self.shutting_down or not self.suspended:
+            return
+        self.suspended = False
+        if self.hook:
+            self.start_hook()
+        self.restart_worker()
+
     def start_worker(self):
+        if self.shutting_down or self.suspended:
+            return
         self.state, self.ready = "loading", False
         self.settings.model_page.practice.hide()
         self.settings.set_status("Подготавливаем локальное распознавание…")
@@ -347,10 +394,10 @@ class Controller(QObject):
         environment.insert("HF_HUB_DISABLE_TELEMETRY", "1")
         worker.setProcessEnvironment(environment)
         worker.setWorkingDirectory(str(ROOT))
-        worker.readyReadStandardOutput.connect(self.read_worker)
-        worker.readyReadStandardError.connect(self.read_stderr)
-        worker.finished.connect(self.worker_finished)
-        worker.errorOccurred.connect(self.worker_error)
+        worker.readyReadStandardOutput.connect(lambda: self.read_worker(worker))
+        worker.readyReadStandardError.connect(lambda: self.read_stderr(worker))
+        worker.finished.connect(lambda code, status: self.worker_finished(code, status, worker))
+        worker.errorOccurred.connect(lambda error: self.worker_error(error, worker))
         command = worker_command("asr", "--model", self.config["model_path"],
                                  "--device", self.config.get("device", "auto"))
         worker.setProgram(command[0])
@@ -358,13 +405,16 @@ class Controller(QObject):
         worker.start()
         self.operation_timer.start(300000)
 
-    def read_stderr(self):
-        if self.worker:
+    def read_stderr(self, source=None):
+        if self.worker and (source is None or source is self.worker):
             data = bytes(self.worker.readAllStandardError())
             self.stderr_tail = (self.stderr_tail + data)[-5000:]
 
-    def read_worker(self):
-        if not self.worker:
+    def read_worker(self, source=None):
+        if not self.worker or (source is not None and source is not self.worker):
+            return
+        if self.worker_restart or self.state in ("canceling", "suspended") or self.shutting_down:
+            self.worker.readAllStandardOutput()
             return
         self.stdout_buffer += bytes(self.worker.readAllStandardOutput())
         while b"\n" in self.stdout_buffer:
@@ -374,11 +424,18 @@ class Controller(QObject):
             except ValueError:
                 LOG.warning("Worker returned an invalid event")
                 continue
+            if source is not None and source is not self.worker:
+                break
             self.handle_worker_event(event)
 
     def handle_worker_event(self, event):
+        if (not isinstance(event, dict) or self.shutting_down or self.worker_restart
+                or not self.system_events.check() or self.suspended):
+            return
         kind = event.get("type")
         if kind == "ready":
+            if self.state != "loading":
+                return
             self.operation_timer.stop()
             self.state, self.ready = "idle", True
             LOG.info("%s worker ready in %s seconds", event.get("device"), event.get("load_seconds"))
@@ -394,12 +451,10 @@ class Controller(QObject):
             LOG.error("ASR initialization: %s", event.get("error"))
             self.fail("Модель не запустилась. Попробуйте модель «Быстрая» или повторите её загрузку.")
         elif kind in ("result", "error"):
+            if (self.state != "processing" or self.request_id is None
+                    or event.get("id") != self.request_id):
+                return
             self.operation_timer.stop()
-            if self.state == "canceling":
-                self.state = "idle"
-                return
-            if event.get("id") != self.request_id:
-                return
             self.request_id = None
             if kind == "error":
                 LOG.error("ASR operation: %s", event.get("error"))
@@ -421,33 +476,57 @@ class Controller(QObject):
             self.state = "pasting"
             self.paste_manager.paste(text, self.target)
 
-    def worker_error(self, error):
-        if not self.shutting_down:
+    def worker_error(self, error, source=None):
+        if source is not None and source is not self.worker:
+            return
+        if not self.shutting_down and not self.worker_restart and self.state not in ("error", "suspended"):
             LOG.error("Worker process error: %s", error)
             self.fail("Не удалось запустить локальный Whisper. Откройте настройки.")
 
-    def worker_finished(self, code, status):
-        if not self.shutting_down and self.state != "error":
-            LOG.error("Worker exited: %s; %s", code, self.stderr_tail.decode("utf-8", "replace"))
+    def worker_finished(self, code, status, source=None):
+        if source is not None and source is not self.worker:
+            return
+        restart = self.worker_restart
+        self.worker_restart = False
+        worker, self.worker = self.worker, None
+        if worker:
+            worker.deleteLater()
+        if self.shutting_down or self.suspended:
+            return
+        if restart:
+            self.start_worker()
+        elif self.state != "error":
+            LOG.error("Worker exited: %s", code)
             self.fail("Процесс Whisper остановился. Перезапустите его в настройках.")
 
     def restart_worker(self):
-        self.cancel()
+        self.cancel(restart_asr=False)
+        self.state, self.ready = "loading", False
+        self._stop_worker(restart=True)
+
+    def _stop_worker(self, restart=False):
+        """Kill native inference; reload only after process exit, without blocking Qt."""
         self.operation_timer.stop()
+        self.request_id = None
+        self.ready = False
+        self.worker_restart = restart
         if self.worker:
-            self.worker.finished.disconnect()
-            self.worker.errorOccurred.disconnect()
-            self.worker.kill()
-            self.worker.waitForFinished(2000)
-            self.worker.deleteLater()
-            self.worker = None
-        self.start_worker()
+            if self.worker.state() == QProcess.ProcessState.NotRunning:
+                self.worker_finished(0, QProcess.ExitStatus.NormalExit, self.worker)
+            else:
+                self.worker.kill()
+        else:
+            self.worker_restart = False
+            if restart:
+                self.start_worker()
 
     def _escape(self, enabled):
         if self.hook:
             self.hook.escape_enabled = enabled
 
     def on_hotkey(self, event):
+        if self.shutting_down or self.suspended or not self.system_events.check():
+            return
         if event == "down":
             # A second Alt press must not redirect a pending transcript to a new window.
             if self.state not in ("recording", "processing", "canceling", "pasting"):
@@ -465,6 +544,8 @@ class Controller(QObject):
             self.cancel()
 
     def begin_recording(self, manual=False):
+        if self.shutting_down or self.suspended or not self.system_events.check():
+            return
         if not manual and self.hook and (not self.hook.state.held or self.hook.state.canceled):
             return
         if self.pause_action.isChecked():
@@ -478,7 +559,7 @@ class Controller(QObject):
             else:
                 self.overlay.present("loading", timeout=5)
             return
-        if self.state in ("processing", "canceling", "pasting"):
+        if self.state != "idle":
             return
         self.overlay.demo = False
         try:
@@ -499,9 +580,11 @@ class Controller(QObject):
     def meter(self):
         if self.state != "recording":
             return
+        if not self.system_events.check():
+            return
         duration = self.recorder.samples / 16000
         self.overlay.sample(self.recorder.level, duration)
-        if self.recorder.stream and not self.recorder.stream.active:
+        if not self.recorder.healthy():
             self.cancel()
             self.overlay.present("error", "Микрофон отключился. Подключите его и повторите запись.", timeout=6)
             return
@@ -510,9 +593,18 @@ class Controller(QObject):
             self.finish_recording()
 
     def finish_recording(self):
+        if self.state != "recording" or not self.system_events.check():
+            return
         self.settings.record_button.setText("Начать проверку микрофона")
         self.meter_timer.stop()
-        audio = self.recorder.stop()
+        try:
+            if not self.recorder.healthy():
+                raise RuntimeError("Microphone stopped delivering audio")
+            audio = self.recorder.stop()
+        except Exception:
+            self.cancel()
+            self.overlay.present("error", "Микрофон отключился. Подключите его и повторите запись.", timeout=6)
+            return
         if self.recorder.overflow:
             LOG.warning("Microphone reported dropped frames")
         if audio.size < 4800:
@@ -550,7 +642,7 @@ class Controller(QObject):
             self.settings.set_status(reason)
 
     def retry_paste(self):
-        if self.state != "idle" or not self.last_text:
+        if self.state != "idle" or not self.last_text or not self.can_paste():
             return
         self.target = native.focus_target()
         self.state = "pasting"
@@ -562,7 +654,7 @@ class Controller(QObject):
             QApplication.clipboard().setText(self.last_text)
             self.overlay.present("copied", timeout=1.6)
 
-    def cancel(self):
+    def cancel(self, *, restart_asr=True):
         self.settings.record_button.setText("Начать проверку микрофона")
         self.hold_timer.stop()
         self.paste_manager.cancel()
@@ -574,6 +666,8 @@ class Controller(QObject):
         elif self.state == "processing":
             self.state = "canceling"
             self.request_id = None
+            self.operation_timer.stop()
+            self.ready = False
         elif self.state == "pasting":
             self.state = "idle"
         self._escape(False)
@@ -582,11 +676,15 @@ class Controller(QObject):
         elif self.state == "loading":
             # Dismiss the loading capsule without aborting model preparation.
             self.overlay.hide()
+        if was_active and self.state == "canceling" and restart_asr:
+            self.settings.set_status("Диктовка отменена. Подготавливаем модель для следующей записи…")
+            self._stop_worker(restart=True)
 
     def fail(self, message):
-        self.cancel()
+        self.cancel(restart_asr=False)
         self.operation_timer.stop()
         self.state, self.ready = "error", False
+        self._stop_worker()
         self.settings.set_status(message, True)
         self.overlay.present("error", message, timeout=7)
 
@@ -598,6 +696,7 @@ class Controller(QObject):
         if self.shutting_down:
             return
         self.shutting_down = True
+        self.system_events.close()
         self.setup.stop()
         self.probe.stop()
         self.hold_timer.stop()
@@ -607,12 +706,10 @@ class Controller(QObject):
         self.paste_manager.cancel()
         if self.hook:
             self.hook.stop()
-        if self.worker and self.worker.state() != QProcess.ProcessState.NotRunning:
-            self.worker.write(b'{"type":"quit"}\n')
-            self.worker.closeWriteChannel()
-            if not self.worker.waitForFinished(1200):
-                self.worker.kill()
-                self.worker.waitForFinished(2000)
+        worker = self.worker
+        self._stop_worker()
+        if worker and worker.state() != QProcess.ProcessState.NotRunning:
+            worker.waitForFinished(2000)
         self.tray.hide()
         LOG.info("Stopped")
 

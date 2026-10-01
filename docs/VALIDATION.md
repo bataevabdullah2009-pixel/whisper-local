@@ -29,7 +29,8 @@ These are a checklist, not a claim that these tests have already passed.
 ## Scope of this preview
 
 Mac recognition uses CPU. Metal/MLX acceleration, dictionary, rewriting, configurable shortcuts and
-automatic model removal are later work. Cancelling an in-flight transcription discards its result;
-the worker currently finishes computation before accepting another dictation.
+automatic model removal are later work. Cancelling an in-flight transcription now kills the worker,
+stops native computation and automatically reloads the model. Esc during model preparation only
+dismisses the capsule. Interruption validation and remaining hardware gates: [RELIABILITY.md](RELIABILITY.md).
 Automatic paste success means the input shortcut was sent, not that the target application's document was read back.
 Original sound files remain in this branch; their existing provenance notice is unchanged.

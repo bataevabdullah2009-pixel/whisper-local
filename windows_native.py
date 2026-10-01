@@ -6,6 +6,7 @@ from ctypes import wintypes as W
 from dataclasses import dataclass
 import threading
 import time
+from windows_focus import focused_edit_key
 
 user32 = C.WinDLL("user32", use_last_error=True)
 kernel32 = C.WinDLL("kernel32", use_last_error=True)
@@ -100,13 +101,14 @@ def focus_target():
     thread_id = user32.GetWindowThreadProcessId(hwnd, None) if hwnd else 0
     info = GUITHREADINFO(cbSize=C.sizeof(GUITHREADINFO))
     user32.GetGUIThreadInfo(thread_id, C.byref(info))
-    return int(hwnd or 0), int(info.hwndFocus or 0)
+    return int(hwnd or 0), int(info.hwndFocus or 0), focused_edit_key()
 
 
 def same_target(target):
+    if not target or len(target) != 3 or not target[0] or not target[1] or target[2] is None:
+        return False
     current = focus_target()
-    return bool(target and target[0] and current[0] == target[0]
-                and (not target[1] or current[1] == target[1]))
+    return current == target
 
 
 def no_activate(hwnd):
@@ -200,6 +202,7 @@ class KeyboardHook(threading.Thread):
                         return 1
                 if self.escape_enabled and key.vkCode == 0x1B:
                     if down:
+                        self.state.escape_down = True
                         self.emit("cancel")
                     return 1
             except Exception:

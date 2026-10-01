@@ -2,6 +2,7 @@
 import argparse
 import base64
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -18,17 +19,21 @@ parser.add_argument("--models", type=Path, default=ROOT / "build/test-models")
 parser.add_argument("--device", default="cpu")
 parser.add_argument("--audio", type=Path)
 args = parser.parse_args()
+environment = os.environ.copy()
+if args.worker:
+    for key in ("PYTHONHOME", "PYTHONPATH"):
+        environment.pop(key, None)
 base_command = [str(args.worker.resolve())] if args.worker else worker_command("probe")[:-1]
 flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 download = subprocess.run([*base_command, "download", "base", str(args.models.resolve())],
-    capture_output=True, text=True, encoding="utf-8", timeout=900, creationflags=flags)
+    capture_output=True, text=True, encoding="utf-8", timeout=900, creationflags=flags, env=environment)
 if download.returncode:
     raise RuntimeError(download.stdout[-3000:] + download.stderr[-3000:])
 events = [json.loads(line) for line in download.stdout.splitlines()]
 model = next(event["path"] for event in events if event.get("type") == "downloaded")
 process = subprocess.Popen([*base_command, "asr", "--model", model, "--device", args.device],
     stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-    text=True, encoding="utf-8", creationflags=flags)
+    text=True, encoding="utf-8", creationflags=flags, env=environment)
 queue = Queue()
 threading.Thread(target=lambda: [queue.put(line) for line in process.stdout], daemon=True).start()
 errors = []
