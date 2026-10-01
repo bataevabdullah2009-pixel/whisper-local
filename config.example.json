@@ -16,6 +16,8 @@
   "hold_ms": 180,
   "hotkey": "default",
   "dictation_mode": "hold",
+  "dictionary_enabled": true,
+  "dictionary_rules": [],
   "max_recording_seconds": 180,
   "result_seconds": 2.8,
   "autostart": false

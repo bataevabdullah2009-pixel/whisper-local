@@ -8,10 +8,11 @@ from PySide6.QtCore import Qt, QTimer, QRectF, QPointF, QPropertyAnimation, QEas
 from PySide6.QtGui import (QColor, QPainter, QPen, QFont, QFontDatabase, QIcon, QPixmap,
                           QTextLayout, QTextOption, QCursor, QPalette, QPolygonF)
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QComboBox, QCheckBox, QPlainTextEdit, QFrame, QApplication, QStackedWidget, QSlider)
+    QComboBox, QCheckBox, QPlainTextEdit, QFrame, QApplication, QStackedWidget, QSlider, QScrollArea)
 import platform_native as native
 from setup_ui import ModelPage
 from dictation_hotkey import MODIFIERS, parse_shortcut
+from dictionary_ui import DictionaryPage
 
 GREEN, RED, INK, WHITE, MUTED = [QColor(x) for x in ('#1ED760','#FF453A','#171717','#F5F5F5','#A8A8A8')]
 
@@ -261,6 +262,10 @@ QSlider::sub-page:horizontal { background:#313131; border-radius:2px; }
 QSlider::handle:horizontal { background:#202020; width:16px; height:16px; margin:-6px 0; border-radius:8px; }
 QPlainTextEdit { background:#FAFAF8; border:1px solid #DDDDD8; border-radius:9px; padding:14px; font-size:15px; selection-background-color:#D5EBDD; selection-color:#171717; placeholder-text-color:#686868; }
 QPlainTextEdit:focus { border:2px solid #71716C; padding:13px; }
+QLineEdit { background:#FAFAF8; border:1px solid #DDDDD8; border-radius:7px; padding:8px; selection-background-color:#D5EBDD; selection-color:#171717; }
+QLineEdit:focus { border:2px solid #71716C; padding:7px; }
+QTableWidget { background:#FAFAF8; border:1px solid #DDDDD8; border-radius:7px; gridline-color:#EAEAE7; selection-background-color:#D5EBDD; selection-color:#171717; }
+QHeaderView::section { background:#F4F3F0; color:#686868; border:none; border-bottom:1px solid #DDDDD8; padding:7px; }
 QToolTip { background:#252525; color:white; border:none; padding:6px; }
 '''
 
@@ -281,7 +286,7 @@ class SettingsWindow(QWidget):
     recordRequested=Signal(); permissionsRequested=Signal()
     freeMemoryRequested=Signal(); precisionRequested=Signal(str)
     dictationRequested=Signal(str,str)
-    PAGE_NAMES=('Основные','Модель','Панель','Звуки','Система','Проверка диктовки','Память')
+    PAGE_NAMES=('Основные','Модель','Панель','Звуки','Система','Проверка диктовки','Память','Словарь')
     def __init__(self,config):
         super().__init__(); self.config=config
         self.setWindowTitle('Whisper Local'); self.setWindowIcon(app_icon()); self.resize(900,700); self.setMinimumSize(860,680)
@@ -414,6 +419,11 @@ class SettingsWindow(QWidget):
         self.free_memory=QPushButton('Освободить память'); self.free_memory.setObjectName('primary'); self.free_memory.setEnabled(False)
         self.free_memory.clicked.connect(self.freeMemoryRequested); memory_layout.addWidget(self.free_memory,0,Qt.AlignmentFlag.AlignRight)
         self.pages.addWidget(memory)
+        self.dictionary_page=DictionaryPage(config)
+        self.dictionary_scroll=QScrollArea(); self.dictionary_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.dictionary_scroll.setWidgetResizable(True); self.dictionary_scroll.setWidget(self.dictionary_page)
+        self.pages.addWidget(self.dictionary_scroll)
+        self.dictionary_page.changed.connect(self.changed.emit)
         self.retry=QPushButton('Перезапустить распознавание'); self.retry.clicked.connect(self.retryRequested); self.retry.hide(); main.addWidget(self.retry)
         self.permission_note=label('','description'); self.permission_note.hide(); main.addWidget(self.permission_note)
         if native.IS_MAC:
