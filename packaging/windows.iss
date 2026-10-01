@@ -19,6 +19,12 @@ Compression=lzma2/fast
 SolidCompression=yes
 WizardStyle=modern
 CloseApplications=yes
+#ifdef ReleaseSigning
+SignTool=whisperlocal_release
+SignedUninstaller=yes
+SignToolRunMinimized=yes
+SignToolRetryCount=2
+#endif
 
 [Files]
 Source: "..\dist\WhisperLocal\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs

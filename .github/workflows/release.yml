@@ -1,0 +1,168 @@
+name: Signed release candidates
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: signed-candidate-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  signed-desktop:
+    # Configure selected branches/tags and reviewers before adding credentials.
+    # No PR trigger, no automatic publication, and no unsigned fallback.
+    environment: release-signing
+    env:
+      PYTHONFAULTHANDLER: '1'
+      WHISPERLOCAL_WINDOWS_TIMESTAMP_URL: ${{ vars.WHISPERLOCAL_WINDOWS_TIMESTAMP_URL }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            label: Windows-x64
+          - os: macos-15
+            label: macOS-Apple-Silicon
+          - os: macos-15-intel
+            label: macOS-Intel
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Prepare temporary Windows signing identity
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE_PFX_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_PFX_BASE64 }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: ./scripts/windows_signing_session.ps1 prepare
+      - name: Prepare temporary Apple Developer ID identity
+        if: runner.os == 'macOS'
+        env:
+          MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_NOTARY_KEY_P8_BASE64: ${{ secrets.MACOS_NOTARY_KEY_P8_BASE64 }}
+          MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
+          MACOS_NOTARY_ISSUER_ID: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
+        run: python scripts/macos_signing.py prepare
+      - name: Dependencies
+        run: python -m pip install -r requirements-build.txt
+      - name: Windows GPU runtime
+        if: runner.os == 'Windows'
+        run: python -m pip install -r requirements-gpu.txt
+      - name: Build pinned whisper.cpp with embedded Metal
+        if: runner.os == 'macOS'
+        run: python scripts/build_whispercpp.py
+      - name: Unit and UI tests
+        run: python -m unittest discover -s tests -v
+      - name: Icons
+        run: python scripts/build_assets.py
+      - name: Build standalone applications
+        run: python -m PyInstaller --noconfirm WhisperLocal.spec
+      - name: Sign Windows application and helper
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/sign_windows.ps1 -Path dist/WhisperLocal/WhisperLocal.exe, dist/WhisperLocal/WhisperWorker.exe
+      - name: Verify signed Mac app and hardened runtime
+        if: runner.os == 'macOS'
+        run: |
+          python scripts/macos_signing.py sign-app --app "dist/Whisper Local.app"
+          codesign --verify --deep --strict --all-architectures "dist/Whisper Local.app"
+          for executable in WhisperLocal WhisperWorker; do
+            details=$(codesign --display --verbose=4 "dist/Whisper Local.app/Contents/MacOS/$executable" 2>&1)
+            if ! printf '%s' "$details" | grep -q 'flags=.*runtime'; then
+              echo 'An executable does not have hardened runtime enabled.' >&2
+              exit 1
+            fi
+          done
+      - name: Cache test model
+        uses: actions/cache@v4
+        with:
+          path: build/test-models
+          key: whisper-fixtures-${{ hashFiles('model_catalog.json', 'whispercpp_catalog.json') }}
+      - name: Download verified public speech fixture
+        run: python scripts/fetch_test_speech.py
+      - name: Signed Windows bundle smoke
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          $candidateProcess = Start-Process -FilePath .\dist\WhisperLocal\WhisperLocal.exe -ArgumentList '--smoke-test --data-dir build/signed-smoke' -PassThru -WindowStyle Hidden
+          if (-not $candidateProcess.WaitForExit(60000)) { Stop-Process -Id $candidateProcess.Id; throw 'Signed GUI did not exit.' }
+          if ($candidateProcess.ExitCode -ne 0) { throw 'Signed GUI smoke failed.' }
+          python scripts/smoke_asr.py --worker dist/WhisperLocal/WhisperWorker.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Signed ASR smoke failed.' }
+          python scripts/smoke_reliability.py --worker dist/WhisperLocal/WhisperWorker.exe --audio build/jfk.wav
+          if ($LASTEXITCODE -ne 0) { throw 'Signed cancellation/reload smoke failed.' }
+          python scripts/smoke_memory.py --worker dist/WhisperLocal/WhisperWorker.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Signed memory lifecycle smoke failed.' }
+      - name: Signed macOS bundle smoke
+        if: runner.os == 'macOS'
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          "dist/Whisper Local.app/Contents/MacOS/WhisperLocal" --smoke-test --data-dir build/signed-smoke
+          python scripts/smoke_asr.py --worker "dist/Whisper Local.app/Contents/MacOS/WhisperWorker"
+          python scripts/smoke_reliability.py --worker "dist/Whisper Local.app/Contents/MacOS/WhisperWorker" --audio build/jfk.wav
+          python scripts/smoke_memory.py --worker "dist/Whisper Local.app/Contents/MacOS/WhisperWorker"
+          python scripts/smoke_whispercpp.py --worker "dist/Whisper Local.app/Contents/MacOS/WhisperWorker"
+      - name: Build signed Windows installer and uninstaller
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $candidateSignScript = Join-Path $env:GITHUB_WORKSPACE 'scripts\sign_windows.ps1'
+          $candidateSignCommand = '/Swhisperlocal_release=pwsh.exe -NoProfile -File $q' + $candidateSignScript + '$q -Path $f'
+          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' '/DReleaseSigning' $candidateSignCommand packaging/windows.iss
+          if ($LASTEXITCODE -ne 0) { throw 'Signed installer build failed.' }
+          $candidateSignature = Get-AuthenticodeSignature -LiteralPath dist/WhisperLocal-Windows-Setup.exe
+          if ($candidateSignature.Status -ne 'Valid' -or -not $candidateSignature.TimeStamperCertificate) { throw 'Installer signature is invalid.' }
+      - name: Windows install, signed uninstaller, and no-host-Python smoke
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          WHISPERLOCAL_REQUIRE_SIGNED_INSTALL: '1'
+        run: ./scripts/smoke_install_windows.ps1
+      - name: Build macOS disk image
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p build/dmg
+          cp -R "dist/Whisper Local.app" build/dmg/
+          ln -s /Applications build/dmg/Applications
+          hdiutil create -volname "Whisper Local" -srcfolder build/dmg -ov -format UDZO "dist/WhisperLocal-${{ matrix.label }}.dmg"
+      - name: Sign, notarize, staple and assess the distributed disk image
+        if: runner.os == 'macOS'
+        env:
+          MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
+          MACOS_NOTARY_ISSUER_ID: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
+        run: |
+          python scripts/macos_signing.py notarize --dmg "dist/WhisperLocal-${{ matrix.label }}.dmg" --report build/notarization.json
+      - name: Candidate manifest
+        run: python scripts/release_manifest.py --target "${{ matrix.label }}" --commit "${{ github.sha }}" --dist dist --output build/release-manifest.json
+      - name: Upload verified signed candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: WhisperLocal-signed-${{ matrix.label }}
+          path: |
+            dist/*Setup.exe
+            dist/*.dmg
+            build/notarization.json
+            build/release-manifest.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Remove temporary Windows private key
+        if: always() && runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/windows_signing_session.ps1 cleanup
+      - name: Remove temporary Mac keychain and notary API key
+        if: always() && runner.os == 'macOS'
+        run: python scripts/macos_signing.py cleanup

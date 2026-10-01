@@ -19,6 +19,15 @@ $testSetup = Start-Process -FilePath $testInstaller -ArgumentList @(
 ) -PassThru -WindowStyle Hidden
 Wait-TestProcess $testSetup 'Installer' 180000
 try {
+    if ($env:WHISPERLOCAL_REQUIRE_SIGNED_INSTALL -eq '1') {
+        foreach ($testSignedName in @('WhisperLocal.exe', 'WhisperWorker.exe', 'unins000.exe')) {
+            $testSignature = Get-AuthenticodeSignature -LiteralPath (Join-Path $testInstall $testSignedName)
+            if ($testSignature.Status -ne 'Valid' -or -not $testSignature.TimeStamperCertificate -or
+                $testSignature.SignerCertificate.Thumbprint -ne $env:WHISPERLOCAL_WINDOWS_CERTIFICATE_SHA1) {
+                throw 'An installed executable lacks the selected release signature and timestamp.'
+            }
+        }
+    }
     # Prove the installed binaries work without finding the runner's Python.
     $testEnvironment = @{}
     foreach ($name in @('PATH', 'PYTHONHOME', 'PYTHONPATH', 'QT_QPA_PLATFORM')) {

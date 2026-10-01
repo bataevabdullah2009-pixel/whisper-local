@@ -6,8 +6,30 @@ import traceback
 from runtime import data_directory
 
 
+def check_macos_callbacks():
+    """Allocate dependency callbacks without a microphone, event tap or network."""
+    if sys.platform != "darwin":
+        return
+    import sounddevice
+    from CoreFoundation import (CFAbsoluteTimeGetCurrent, CFRunLoopTimerCreate,
+                                CFRunLoopTimerInvalidate)
+
+    # The same old-style CFFI allocator is used by PortAudio's recording callback.
+    callback = sounddevice._ffi.callback("int(int)", lambda value: value + 1)
+    if callback(1) != 2:
+        raise RuntimeError("CFFI callback smoke failed")
+    # PyObjC creates an executable callback stub; the timer is never scheduled.
+    timer = CFRunLoopTimerCreate(None, CFAbsoluteTimeGetCurrent() + 3600,
+                                0, 0, 0, lambda timer, info: None, None)
+    if timer is None:
+        raise RuntimeError("PyObjC callback smoke failed")
+    CFRunLoopTimerInvalidate(timer)
+
+
 def run():
     try:
+        if "--smoke-test" in sys.argv:
+            check_macos_callbacks()
         from app import main
         return main()
     except Exception:
