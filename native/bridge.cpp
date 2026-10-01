@@ -28,7 +28,11 @@ WL_API void * wl_create(const char * path, int gpu, int threads) {
         auto result = std::make_unique<Context>();
         auto params = whisper_context_default_params();
         params.use_gpu = gpu != 0;
-        params.flash_attn = false; // compatible with older Intel/Apple GPUs
+#if defined(__APPLE__) && defined(__aarch64__)
+        params.flash_attn = gpu != 0; // optimized Metal attention on Apple Silicon
+#else
+        params.flash_attn = false; // compatible with older Intel Metal GPUs
+#endif
         result->threads = std::max(1, threads);
         result->model = whisper_init_from_file_with_params(path, params);
         if (!result->model) return nullptr;

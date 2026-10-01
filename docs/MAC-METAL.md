@@ -11,7 +11,8 @@ downloaded just by opening settings or updating the application.
 Auto and GPU/Metal try a local GPU context and an actual encoder/decoder warmup. Readiness
 reports the backend of the initialized context; device enumeration/build flags alone do not
 prove acceleration. Metal initialization/kernel failure closes the failed context and retries
-the same local model on CPU. A context that already runs successfully on CPU reports CPU
+the same local model on CPU. Apple Silicon enables Flash Attention for GPU contexts; Intel
+uses the compatible attention path. A context that already runs successfully on CPU reports CPU
 fallback explicitly. CPU selection disables the GPU. Native FP16/Q8 precision comes from the
 model file, so the CTranslate2 runtime INT8 control is disabled for this backend.
 

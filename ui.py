@@ -369,7 +369,8 @@ class SettingsWindow(QWidget):
         self.ram_usage=label('Измеряем…','section')
         self.add_row(memory_layout,'Оперативная память','Приложение и его процессы.\nОбщие страницы могут учитываться дважды.',self.ram_usage)
         self.vram_usage=label('Измеряем…','section'); self.vram_usage.setMaximumWidth(270)
-        self.add_row(memory_layout,'Видеопамять','Отдельная память GPU и общая память\nиз RAM по счётчикам Windows.',self.vram_usage)
+        gpu_note='Отдельный расход памяти Metal пока\nнедоступен для измерения.' if native.IS_MAC else 'Отдельная память GPU и общая память\nиз RAM по счётчикам Windows.'
+        self.add_row(memory_layout,'Видеопамять',gpu_note,self.vram_usage)
         self.idle_unload=ChoiceBox(); self.idle_unload.setAccessibleName('Выгрузка модели после простоя'); self.idle_unload.setFixedWidth(225)
         for title,seconds in (('Через 1 минуту',60),('Через 5 минут',300),('Через 10 минут',600),('Через 30 минут',1800),('Не выгружать',0)):
             self.idle_unload.addItem(title,seconds)
