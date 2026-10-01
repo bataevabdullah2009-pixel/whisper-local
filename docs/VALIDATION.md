@@ -10,6 +10,8 @@
   cancel/retry/progress/practice UI states and macOS LaunchAgent argument quoting.
 - Local dictionary matching, add/edit/delete/preview, disabled rules, migration and persistence,
   and processed-text copy/paste paths with synthetic results. See [DICTIONARY.md](DICTIONARY.md).
+- Optional local cleanup, protected technical/quoted text, dictionary priority, combined preview,
+  live options and empty-result/copy/retry guards. See [TEXT-CLEANUP.md](TEXT-CLEANUP.md).
 - Source and packaged workers: download and verify Whisper base, load on CPU, process silence,
   return an empty transcript, then shut down. This opens no microphone.
 - Optional speech fixture: `scripts/smoke_asr.py --audio build/jfk.wav` accepts a 16 kHz mono
@@ -28,6 +30,8 @@ These are a checklist, not a claim that these tests have already passed.
 - Run the entire dictation flow with network access disabled after setup.
 - Dictionary rules, enabled/disabled spelling, persistence, preview and real paste/copy in both
   dictation modes on Windows and physical Macs. See [DICTIONARY.md](DICTIONARY.md).
+- Cleanup options and dictionary priority with actual dictation, preview and external paste/copy
+  on Windows and physical Macs. See [TEXT-CLEANUP.md](TEXT-CLEANUP.md).
 - Sign Windows installers and sign/notarize Mac bundles before a broad public release.
 
 ## Scope of this preview
@@ -35,8 +39,9 @@ These are a checklist, not a claim that these tests have already passed.
 Mac CTranslate2 recognition uses CPU; experimental whisper.cpp / Metal remains subject to the physical
 gates in [MAC-METAL.md](MAC-METAL.md). Configurable shortcuts and hold/toggle modes have code checks
 and their own pending real-machine gates in [DICTATION.md](DICTATION.md). The local dictionary has
-code checks and pending manual gates in [DICTIONARY.md](DICTIONARY.md). Local spacing, punctuation
-and filler removal are next; more involved rewriting and automatic model-file removal are later work.
+code checks and pending manual gates in [DICTIONARY.md](DICTIONARY.md). Optional local cleanup
+has code checks and pending manual gates in [TEXT-CLEANUP.md](TEXT-CLEANUP.md);
+more involved rewriting and automatic model-file removal are later work.
 Cancelling an in-flight transcription now kills the worker,
 stops native computation and automatically reloads the model. Esc during model preparation only
 dismisses the capsule. Interruption validation and remaining hardware gates: [RELIABILITY.md](RELIABILITY.md).

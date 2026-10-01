@@ -18,6 +18,9 @@
   "dictation_mode": "hold",
   "dictionary_enabled": true,
   "dictionary_rules": [],
+  "cleanup_enabled": false,
+  "cleanup_spacing": true,
+  "cleanup_fillers": false,
   "max_recording_seconds": 180,
   "result_seconds": 2.8,
   "autostart": false

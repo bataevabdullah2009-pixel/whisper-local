@@ -30,6 +30,7 @@ from system_events import SystemEvents
 from memory_monitor import MemoryMonitor
 from dictation_hotkey import parse_shortcut, normalize_config
 from user_dictionary import UserDictionary, normalize_config as normalize_dictionary_config
+from text_cleanup import TextCleanup, normalize_config as normalize_cleanup_config
 
 ROOT = Path(__file__).resolve().parent
 LOG = logging.getLogger("WhisperLocal")
@@ -52,6 +53,7 @@ def load_config(data_dir):
         default["idle_unload_seconds"] = 300
     normalize_config(default, native.IS_MAC)
     normalize_dictionary_config(default)
+    normalize_cleanup_config(default)
     return default
 
 
@@ -146,6 +148,7 @@ class Controller(QObject):
         self.hook_generation = 0
         self.config = load_config(data_dir)
         self.dictionary = UserDictionary(self.config["dictionary_rules"], self.config["dictionary_enabled"])
+        self.cleanup = TextCleanup(self.config)
         self.state = "loading"
         self.ready = False
         self.shutting_down = False
@@ -382,6 +385,7 @@ class Controller(QObject):
         if (self.dictionary.rules != self.config["dictionary_rules"]
                 or self.dictionary.enabled != self.config["dictionary_enabled"]):
             self.dictionary = UserDictionary(self.config["dictionary_rules"], self.config["dictionary_enabled"])
+        self.cleanup = TextCleanup(self.config)
         self.overlay.set_wave_color(self.config.get("wave_color", "green"))
         self.overlay.set_style(self.config.get("bar_style", "flow"))
         self.sounds.prepare()
@@ -629,6 +633,13 @@ class Controller(QObject):
                 self.idle_since = time.monotonic()
                 self._escape(False)
                 self.overlay.present("empty", "Попробуйте говорить ближе к микрофону.", timeout=3)
+                return
+            text = self.cleanup.apply(text, self.dictionary.pattern)
+            if not text.strip():
+                self.state = "idle"
+                self.idle_since = time.monotonic()
+                self._escape(False)
+                self.overlay.present("empty", "После очистки текст пуст. Можно отключить удаление междометий.", timeout=4)
                 return
             text = self.dictionary.apply(text)
             self.last_text = text

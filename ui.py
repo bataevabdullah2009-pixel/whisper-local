@@ -13,6 +13,7 @@ import platform_native as native
 from setup_ui import ModelPage
 from dictation_hotkey import MODIFIERS, parse_shortcut
 from dictionary_ui import DictionaryPage
+from cleanup_ui import CleanupPage
 
 GREEN, RED, INK, WHITE, MUTED = [QColor(x) for x in ('#1ED760','#FF453A','#171717','#F5F5F5','#A8A8A8')]
 
@@ -286,7 +287,7 @@ class SettingsWindow(QWidget):
     recordRequested=Signal(); permissionsRequested=Signal()
     freeMemoryRequested=Signal(); precisionRequested=Signal(str)
     dictationRequested=Signal(str,str)
-    PAGE_NAMES=('Основные','Модель','Панель','Звуки','Система','Проверка диктовки','Память','Словарь')
+    PAGE_NAMES=('Основные','Модель','Панель','Звуки','Система','Проверка диктовки','Память','Словарь','Очистка текста')
     def __init__(self,config):
         super().__init__(); self.config=config
         self.setWindowTitle('Whisper Local'); self.setWindowIcon(app_icon()); self.resize(900,700); self.setMinimumSize(860,680)
@@ -424,6 +425,12 @@ class SettingsWindow(QWidget):
         self.dictionary_scroll.setWidgetResizable(True); self.dictionary_scroll.setWidget(self.dictionary_page)
         self.pages.addWidget(self.dictionary_scroll)
         self.dictionary_page.changed.connect(self.changed.emit)
+        self.cleanup_page=CleanupPage(config)
+        self.cleanup_scroll=QScrollArea(); self.cleanup_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.cleanup_scroll.setWidgetResizable(True); self.cleanup_scroll.setWidget(self.cleanup_page)
+        self.pages.addWidget(self.cleanup_scroll)
+        self.cleanup_page.changed.connect(self.changed.emit)
+        self.dictionary_page.changed.connect(self.cleanup_page.preview)
         self.retry=QPushButton('Перезапустить распознавание'); self.retry.clicked.connect(self.retryRequested); self.retry.hide(); main.addWidget(self.retry)
         self.permission_note=label('','description'); self.permission_note.hide(); main.addWidget(self.permission_note)
         if native.IS_MAC:
