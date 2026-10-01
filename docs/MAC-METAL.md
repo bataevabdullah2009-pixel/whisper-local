@@ -11,8 +11,9 @@ downloaded just by opening settings or updating the application.
 Auto and GPU/Metal try a local GPU context and an actual encoder/decoder warmup. Readiness
 reports the backend of the initialized context; device enumeration/build flags alone do not
 prove acceleration. Metal initialization/kernel failure closes the failed context and retries
-the same local model on CPU. Apple Silicon enables Flash Attention for GPU contexts; Intel
-uses the compatible attention path. A context that already runs successfully on CPU reports CPU
+the same local model on CPU. CPU and Apple Silicon Metal contexts use upstream's default
+Flash Attention; Intel Metal uses the compatible attention path. A context that already runs
+successfully on CPU reports CPU
 fallback explicitly. CPU selection disables the GPU. Native FP16/Q8 precision comes from the
 model file, so the CTranslate2 runtime INT8 control is disabled for this backend.
 
@@ -50,6 +51,8 @@ python scripts/build_assets.py
 python -m PyInstaller --noconfirm WhisperLocal.spec
 # Explicitly downloads/verifies the public GGML base test model if --model is omitted:
 python scripts/smoke_whispercpp.py --worker "dist/Whisper Local.app/Contents/MacOS/WhisperWorker"
+# Compare the default small model; base already covers the controller lifecycle:
+python scripts/smoke_whispercpp.py --model-id small --benchmark-only --output build/whispercpp-small-smoke.json
 # Physical supported Mac; a CPU fallback must fail this check:
 python scripts/smoke_whispercpp.py --model /path/ggml-base.bin --require-metal
 ```
@@ -58,7 +61,9 @@ The smoke check uses existing `build/jfk.wav`, the checksum-pinned public fixtur
 reliability checks. It measures CPU and Auto separately, requires speech and empty silence,
 checks cancellation/reload, next speech, idle/manual unload and cold recording. Reports contain
 backend and timings, never decoded text. It does not open a microphone or perform native paste.
-CI runs it on the bundled helper for both Mac architectures. If a hosted runner exposes no Metal
+CI runs it on the bundled helper for both Mac architectures, and separately compares CPU/Auto
+timings on the default small model. Metal is not guaranteed to be faster on small/short workloads;
+the CPU selection remains available. If a hosted runner exposes no Metal
 GPU, the report says `unavailable_on_runner` and checks CPU fallback; that is not Metal execution
 evidence and does not support a speedup claim.
 
