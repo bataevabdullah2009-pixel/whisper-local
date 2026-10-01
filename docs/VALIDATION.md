@@ -28,8 +28,10 @@ These are a checklist, not a claim that these tests have already passed.
 
 ## Scope of this preview
 
-Mac recognition uses CPU. Metal/MLX acceleration, dictionary, rewriting, configurable shortcuts and
-automatic model removal are later work. Cancelling an in-flight transcription now kills the worker,
+Mac CTranslate2 recognition uses CPU; experimental whisper.cpp / Metal remains subject to the physical
+gates in [MAC-METAL.md](MAC-METAL.md). Configurable shortcuts and hold/toggle modes have code checks
+and their own pending real-machine gates in [DICTATION.md](DICTATION.md). Dictionary, rewriting and
+automatic model-file removal are later work. Cancelling an in-flight transcription now kills the worker,
 stops native computation and automatically reloads the model. Esc during model preparation only
 dismisses the capsule. Interruption validation and remaining hardware gates: [RELIABILITY.md](RELIABILITY.md).
 Automatic paste success means the input shortcut was sent, not that the target application's document was read back.

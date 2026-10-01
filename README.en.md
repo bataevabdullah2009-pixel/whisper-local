@@ -11,8 +11,15 @@ The current UI is in Russian.
 3. Downloads can be cancelled and resumed. Every file is verified against a pinned model revision and checksum.
 4. Choose **Проверить диктовку** (Test dictation). Record a phrase with the button or the global shortcut.
 
-Hold **left Alt** on Windows or **right Option** on Mac, speak, and release to paste.
+By default, hold **left Alt** on Windows or **right Option** on Mac, speak, and release to paste.
+In **Основные** (General), choose a custom shortcut and **Удерживать** (Hold) or
+**Нажать для начала / остановки** (Press to start/stop), then **Применить** (Apply).
+Toggle mode starts recording on the first press and finishes on the next press; no restart is needed.
+Select the default shortcut and Hold to restore the original behavior.
+Known system/editing combinations are rejected; an OS-reported conflict retains the previous setting.
+Application-local shortcuts still need checking in the intended input field. See [dictation checks](docs/DICTATION.md).
 Esc cancels. The application never presses Enter. Manual copying is available when pasting fails.
+Losing focus from an identified input field while recording cancels and discards that recording.
 Cancelling recognition terminates the computation process, then reloads the model automatically.
 Sleep invalidates pending dictation; start a new recording after the model is ready again.
 Unavailable or unidentified input fields require manual copying.

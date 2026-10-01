@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushB
     QComboBox, QCheckBox, QPlainTextEdit, QFrame, QApplication, QStackedWidget, QSlider)
 import platform_native as native
 from setup_ui import ModelPage
+from dictation_hotkey import MODIFIERS, parse_shortcut
 
 GREEN, RED, INK, WHITE, MUTED = [QColor(x) for x in ('#1ED760','#FF453A','#171717','#F5F5F5','#A8A8A8')]
 
@@ -279,6 +280,7 @@ class SettingsWindow(QWidget):
     previewSoundRequested=Signal(str); resetPositionRequested=Signal()
     recordRequested=Signal(); permissionsRequested=Signal()
     freeMemoryRequested=Signal(); precisionRequested=Signal(str)
+    dictationRequested=Signal(str,str)
     PAGE_NAMES=('Основные','Модель','Панель','Звуки','Система','Проверка диктовки','Память')
     def __init__(self,config):
         super().__init__(); self.config=config
@@ -299,8 +301,35 @@ class SettingsWindow(QWidget):
         self.status=label('Подготавливаю распознавание…','status'); main.addWidget(self.status)
         self.pages=QStackedWidget(); main.addWidget(self.pages,1)
         general=QWidget(); form=QVBoxLayout(general); form.setContentsMargins(0,6,0,0); form.setSpacing(0)
-        key=label(native.HOTKEY_SHORT,'key'); key.setAlignment(Qt.AlignmentFlag.AlignCenter); key.setMinimumSize(70,38)
-        self.add_row(form,'Горячая клавиша',f'Удерживайте {native.HOTKEY_NAME}, чтобы говорить.\nОтпустите, чтобы вставить текст.',key)
+        self.hotkey_choice=ChoiceBox(); self.hotkey_choice.setAccessibleName('Горячая клавиша')
+        self.hotkey_choice.addItem(f'По умолчанию · {native.HOTKEY_NAME}','default')
+        self.hotkey_choice.addItem('Другое сочетание','custom')
+        self.hotkey_modifiers=ChoiceBox(); self.hotkey_modifiers.setAccessibleName('Модификаторы горячей клавиши')
+        names={'ctrl':'Ctrl','alt':'Option' if native.IS_MAC else 'Alt','shift':'Shift','cmd':'⌘'}
+        choices=((),('ctrl',),('alt',),('shift',),('ctrl','shift'),('alt','shift'),('ctrl','alt'),('ctrl','alt','shift'))
+        if native.IS_MAC:
+            choices+= (('cmd',),('cmd','shift'),('alt','cmd'),('ctrl','cmd'),('ctrl','shift','cmd'),('alt','shift','cmd'),('ctrl','alt','cmd'),('ctrl','alt','shift','cmd'))
+        for modifiers in choices:
+            self.hotkey_modifiers.addItem(' + '.join(names[m] for m in modifiers) or 'Без модификаторов','+'.join(m for m in MODIFIERS if m in modifiers))
+        self.hotkey_key=ChoiceBox(); self.hotkey_key.setAccessibleName('Основная клавиша сочетания')
+        for code in ('space',*[f'f{n}' for n in range(1,20) if n!=12 or native.IS_MAC],*'abcdefghijklmnopqrstuvwxyz0123456789'):
+            self.hotkey_key.addItem('Пробел' if code=='space' else code.upper(),code)
+        self.hotkey_custom=QWidget(); custom_layout=QHBoxLayout(self.hotkey_custom); custom_layout.setContentsMargins(0,0,0,0); custom_layout.setSpacing(6)
+        custom_layout.addWidget(self.hotkey_modifiers,1); custom_layout.addWidget(self.hotkey_key)
+        key=QWidget(); key.setFixedWidth(270); key_layout=QVBoxLayout(key); key_layout.setContentsMargins(0,0,0,0); key_layout.setSpacing(8)
+        key_layout.addWidget(self.hotkey_choice); key_layout.addWidget(self.hotkey_custom)
+        self.hotkey_description=self.add_row(form,'Горячая клавиша','Выберите привычную клавишу\nили своё сочетание.',key)
+        self.dictation_mode=ChoiceBox(); self.dictation_mode.setAccessibleName('Режим диктовки'); self.dictation_mode.setFixedWidth(270)
+        self.dictation_mode.addItem('Удерживать','hold'); self.dictation_mode.addItem('Нажать для начала / остановки','toggle')
+        self.mode_description=self.add_row(form,'Режим диктовки','',self.dictation_mode,rule=False)
+        self.hotkey_note=label('','detail'); form.addWidget(self.hotkey_note)
+        self.apply_dictation=QPushButton('Применить'); self.apply_dictation.setObjectName('primary'); self.apply_dictation.clicked.connect(self._apply_dictation)
+        form.addWidget(self.apply_dictation,0,Qt.AlignmentFlag.AlignRight)
+        self.set_dictation_settings(config['hotkey'] if 'hotkey' in config else 'default',config.get('dictation_mode','hold'))
+        self.hotkey_choice.currentIndexChanged.connect(self._dictation_edited)
+        self.hotkey_modifiers.currentIndexChanged.connect(self._dictation_edited)
+        self.hotkey_key.currentIndexChanged.connect(self._dictation_edited)
+        self.dictation_mode.currentIndexChanged.connect(self._dictation_edited)
         self.microphone=ChoiceBox(); self.microphone.setAccessibleName('Микрофон'); self.microphone.setFixedWidth(250)
         self.microphone.setMinimumContentsLength(17); self.microphone.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         mic=QWidget(); micbox=QVBoxLayout(mic); micbox.setContentsMargins(0,0,0,0); micbox.setSpacing(5); micbox.addWidget(self.microphone)
@@ -358,7 +387,7 @@ class SettingsWindow(QWidget):
         self.engine_label=label('Модель ещё не подготовлена. Откройте раздел «Модель».','description'); system_layout.addWidget(self.engine_label); system_layout.addSpacing(18)
         system_layout.addWidget(label('Ваши записи','section')); system_layout.addWidget(label('Микрофон включается только во время диктовки. Аудио обрабатывается на компьютере и не сохраняется. Последний текст доступен до выхода из приложения.','description')); system_layout.addStretch(); self.pages.addWidget(system)
         test=QWidget(); testing=QVBoxLayout(test); testing.setContentsMargins(0,8,0,0); testing.setSpacing(16)
-        testing.addWidget(label(f'Нажмите в поле, удерживайте {native.HOTKEY_NAME} и скажите пару слов. Или запустите запись кнопкой ниже.','description'))
+        self.practice_note=label('','description'); testing.addWidget(self.practice_note)
         self.scratch=QPlainTextEdit(); self.scratch.setAccessibleName('Поле для проверки диктовки'); self.scratch.setPlaceholderText('Здесь появятся ваши слова…')
         palette=self.scratch.palette(); palette.setColor(QPalette.ColorRole.PlaceholderText,QColor('#686868')); self.scratch.setPalette(palette)
         self.scratch.setMinimumHeight(200); testing.addWidget(self.scratch,1)
@@ -389,7 +418,7 @@ class SettingsWindow(QWidget):
         self.permission_note=label('','description'); self.permission_note.hide(); main.addWidget(self.permission_note)
         if native.IS_MAC:
             permissions=QPushButton('Разрешить горячую клавишу в macOS'); permissions.clicked.connect(self.permissionsRequested); main.addWidget(permissions)
-        main.addWidget(label('Изменения сохраняются автоматически.','detail')); root.addWidget(content,1)
+        main.addWidget(label('Клавиша и режим сохраняются по кнопке «Применить».\nОстальные настройки сохраняются автоматически.','detail')); root.addWidget(content,1)
         self.refresh_microphones(); self.show_page(0)
         for combo in (self.microphone,self.language,self.color,self.panel_style,self.sound_style,self.idle_unload): combo.currentIndexChanged.connect(self._save)
         self.precision.currentIndexChanged.connect(lambda:self.precisionRequested.emit(self.precision.currentData()))
@@ -399,6 +428,35 @@ class SettingsWindow(QWidget):
         self.sound_save_timer.timeout.connect(self._save)
         self.sound_volume.valueChanged.connect(self._volume_changed)
         self.sound_volume.sliderReleased.connect(self._save)
+        self.refresh_dictation_description()
+    def set_dictation_settings(self,shortcut_value,mode):
+        shortcut=parse_shortcut(shortcut_value,native.IS_MAC)
+        controls=(self.hotkey_choice,self.hotkey_modifiers,self.hotkey_key,self.dictation_mode)
+        for control in controls: control.blockSignals(True)
+        self.hotkey_choice.setCurrentIndex(0 if shortcut.default else 1)
+        modifiers='+'.join(m for m in MODIFIERS if m in shortcut.modifiers) if not shortcut.default else 'ctrl+shift'
+        self.hotkey_modifiers.setCurrentIndex(max(0,self.hotkey_modifiers.findData(modifiers)))
+        self.hotkey_key.setCurrentIndex(max(0,self.hotkey_key.findData('space' if shortcut.default else shortcut.key)))
+        self.dictation_mode.setCurrentIndex(max(0,self.dictation_mode.findData(mode)))
+        for control in controls: control.blockSignals(False)
+        self.hotkey_custom.setVisible(not shortcut.default)
+        self.hotkey_note.setText('Другие приложения могут использовать то же сочетание. Проверьте его в нужном поле.')
+        self.hotkey_note.setStyleSheet('')
+    def _dictation_edited(self):
+        self.hotkey_custom.setVisible(self.hotkey_choice.currentData()=='custom')
+        self.mode_description.setText('Нажмите, чтобы начать запись.\nНажмите ещё раз, чтобы вставить текст.' if self.dictation_mode.currentData()=='toggle' else 'Удерживайте, пока говорите.\nОтпустите, чтобы вставить текст.')
+        self.hotkey_note.setText('Нажмите «Применить», чтобы сохранить клавишу и режим.')
+        self.hotkey_note.setStyleSheet('')
+    def _apply_dictation(self):
+        value='default' if self.hotkey_choice.currentData()=='default' else '+'.join(filter(None,(self.hotkey_modifiers.currentData(),self.hotkey_key.currentData())))
+        self.dictationRequested.emit(value,self.dictation_mode.currentData())
+    def dictation_error(self,message):
+        self.hotkey_note.setText(message); self.hotkey_note.setStyleSheet('color:#A44332;')
+    def refresh_dictation_description(self):
+        shortcut=parse_shortcut(self.config.get('hotkey','default'),native.IS_MAC).title(native.IS_MAC)
+        toggle=self.config.get('dictation_mode','hold')=='toggle'
+        self.mode_description.setText('Нажмите, чтобы начать запись.\nНажмите ещё раз, чтобы вставить текст.' if toggle else 'Удерживайте, пока говорите.\nОтпустите, чтобы вставить текст.')
+        self.practice_note.setText(f'Нажмите в поле и используйте {shortcut}: '+('нажмите для начала и остановки.' if toggle else 'удерживайте, пока говорите, затем отпустите.')+' Или запустите запись кнопкой ниже.')
     def _volume_changed(self,value):
         self.volume_label.setText(str(value)+'%')
         self.sound_save_timer.start(180)
