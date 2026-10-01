@@ -13,6 +13,9 @@ The current UI is in Russian.
 
 Hold **left Alt** on Windows or **right Option** on Mac, speak, and release to paste.
 Esc cancels. The application never presses Enter. Manual copying is available when pasting fails.
+Cancelling recognition terminates the computation process, then reloads the model automatically.
+Sleep invalidates pending dictation; start a new recording after the model is ready again.
+Unavailable or unidentified input fields require manual copying.
 **Выбрать папку…** imports an existing faster-whisper / CTranslate2 model directory.
 
 Windows supports CPU and NVIDIA CUDA with automatic CPU fallback if model loading or GPU warmup fails.
@@ -41,3 +44,4 @@ python -m PyInstaller --noconfirm WhisperLocal.spec
 CI builds Windows, Mac ARM64 and Mac Intel packages and checks the bundled recognition helper with a real
 Whisper base model. Manual Mac microphone, permission and paste verification is still required.
 See [validation](docs/VALIDATION.md), [Russian documentation](README.md) and [sound provenance](assets/sounds/SOURCES.md).
+Cancellation, interruption and field safety checks are documented in [reliability](docs/RELIABILITY.md).

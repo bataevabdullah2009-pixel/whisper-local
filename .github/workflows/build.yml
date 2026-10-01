@@ -47,6 +47,8 @@ jobs:
         with:
           path: build/test-models
           key: whisper-base-${{ hashFiles('model_catalog.json') }}
+      - name: Download verified public speech fixture
+        run: python scripts/fetch_test_speech.py
       - name: Windows bundle smoke test
         if: runner.os == 'Windows'
         shell: pwsh
@@ -61,6 +63,8 @@ jobs:
           }
           python scripts/smoke_asr.py --worker dist/WhisperLocal/WhisperWorker.exe
           if ($LASTEXITCODE -ne 0) { throw 'Packaged recognition smoke test failed.' }
+          python scripts/smoke_reliability.py --worker dist/WhisperLocal/WhisperWorker.exe --audio build/jfk.wav
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged cancellation/reload test failed.' }
       - name: macOS bundle smoke test
         if: runner.os == 'macOS'
         env:
@@ -68,12 +72,17 @@ jobs:
         run: |
           "dist/Whisper Local.app/Contents/MacOS/WhisperLocal" --smoke-test --data-dir build/smoke
           python scripts/smoke_asr.py --worker "dist/Whisper Local.app/Contents/MacOS/WhisperWorker"
+          python scripts/smoke_reliability.py --worker "dist/Whisper Local.app/Contents/MacOS/WhisperWorker" --audio build/jfk.wav
       - name: Windows installer
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' packaging/windows.iss
           if ($LASTEXITCODE -ne 0) { throw 'Installer build failed.' }
+      - name: Windows install and uninstall without host Python
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/smoke_install_windows.ps1
       - name: macOS disk image
         if: runner.os == 'macOS'
         run: |
