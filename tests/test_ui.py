@@ -80,6 +80,38 @@ class FirstRun(unittest.TestCase):
         self.assertFalse(page.practice.isHidden())
         window.hide()
 
+    def test_mac_first_setup_offers_metal_and_legacy_model_choice(self):
+        config = json.loads((ROOT / "config.example.json").read_text())
+        with patch("setup_ui.native.IS_MAC", True):
+            window = SettingsWindow(config)
+            page = window.model_page
+            self.assertEqual(page.backend.currentData(), "whispercpp")
+            self.assertGreaterEqual(page.device.findData("metal"), 0)
+            page.backend.setCurrentIndex(page.backend.findData("faster-whisper"))
+            self.assertEqual(page.device.findData("metal"), -1)
+            self.assertIn("папку", page.local.text())
+            window.hide()
+
+    def test_existing_mac_ct2_folder_is_not_automatically_switched(self):
+        config = json.loads((ROOT / "config.example.json").read_text())
+        config["model_path"] = str(self.data)
+        with patch("setup_ui.native.IS_MAC", True):
+            window = SettingsWindow(config)
+            self.assertEqual(window.model_page.backend.currentData(), "faster-whisper")
+            self.assertEqual(config["model_path"], str(self.data))
+            window.hide()
+
+    def test_mac_metal_memory_and_file_precision_do_not_claim_zero_vram_or_runtime_int8(self):
+        config = json.loads((ROOT / "config.example.json").read_text())
+        with patch("ui.native.IS_MAC", True):
+            window = SettingsWindow(config)
+            window.set_engine("metal", "whispercpp", "float16")
+            window.set_memory_usage({"rss_bytes": 100, "dedicated_bytes": None})
+            self.assertIn("недоступен", window.vram_usage.text())
+            self.assertFalse(window.precision.isEnabled())
+            self.assertIn("float16", window.precision.currentText())
+            window.hide()
+
 
 if __name__ == "__main__":
     unittest.main()

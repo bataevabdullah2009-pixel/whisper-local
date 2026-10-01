@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import shutil
 import ssl
+import struct
 import time
 import urllib.error
 import urllib.request
@@ -14,16 +15,40 @@ import certifi
 
 CATALOG = json.loads((Path(__file__).with_name("model_catalog.json")).read_text(encoding="utf-8"))
 MODELS = {model["id"]: model for model in CATALOG}
+CPP_CATALOG = json.loads((Path(__file__).with_name("whispercpp_catalog.json")).read_text(encoding="utf-8"))
 
 
-def model_size(model_id: str) -> int:
-    return sum(file["size"] for file in MODELS[model_id]["files"])
+def catalog_for(backend):
+    if backend == "whispercpp":
+        return CPP_CATALOG
+    if backend == "faster-whisper":
+        return CATALOG
+    raise ValueError("Unknown recognition backend")
+
+
+def model_backend(path):
+    return "whispercpp" if str(path) and Path(path).is_file() else "faster-whisper"
+
+
+def model_size(model_id: str, backend="faster-whisper") -> int:
+    return sum(file["size"] for model in catalog_for(backend) if model["id"] == model_id for file in model["files"])
 
 
 def validate_model(path: str | Path) -> Path:
     if not str(path):
         raise ValueError("Сначала скачайте модель или выберите папку с готовой моделью.")
     directory = Path(path).expanduser().resolve()
+    if directory.is_file():
+        with directory.open("rb") as file:
+            header = file.read(48)
+        if len(header) != 48 or struct.unpack("<I", header[:4])[0] != 0x67676D6C:
+            raise ValueError("Нужен файл модели whisper.cpp GGML .bin. GGUF и OpenAI .pt не поддерживаются.")
+        values = struct.unpack("<11i", header[4:])
+        if (not 1000 <= values[0] <= 200000 or not all(0 < v <= 16384 for v in values[1:9])
+                or values[9] not in (80, 128) or not 0 <= values[10] % 1000 <= 40
+                or directory.stat().st_size <= 48):
+            raise ValueError("Повреждён заголовок модели whisper.cpp.")
+        return directory
     for name in ("model.bin", "config.json", "tokenizer.json"):
         file = directory / name
         if not file.is_file() or not file.stat().st_size:
@@ -104,11 +129,12 @@ def download_file(url: str, path: Path, file: dict, progress, opener=open_downlo
         time.sleep(attempt + 1)
 
 
-def download_model(model_id: str, root: Path, emit) -> Path:
-    model = MODELS[model_id]
-    directory = root / f"{model_id}-{model['revision'][:12]}"
+def download_model(model_id: str, root: Path, emit, backend="faster-whisper") -> Path:
+    model = next(model for model in catalog_for(backend) if model["id"] == model_id)
+    prefix = "whispercpp-" if backend == "whispercpp" else ""
+    directory = root / f"{prefix}{model_id}-{model['revision'][:12]}"
     directory.mkdir(parents=True, exist_ok=True)
-    total = model_size(model_id)
+    total = model_size(model_id, backend)
     verified = {}
     needed = 0
     for file in model["files"]:
@@ -138,5 +164,5 @@ def download_model(model_id: str, root: Path, emit) -> Path:
             url = f"https://huggingface.co/{model['repo']}/resolve/{model['revision']}/{file['name']}?download=true"
             download_file(url, path, file, progress)
         completed += file["size"]
-    validate_model(directory)
-    return directory
+    result = directory / model["files"][0]["name"] if backend == "whispercpp" else directory
+    return validate_model(result)

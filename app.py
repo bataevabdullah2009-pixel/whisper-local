@@ -24,7 +24,7 @@ from sound_cues import SoundCues
 from ui import Overlay, SettingsWindow, app_icon, prepare_fonts
 import platform_native as native
 from runtime import APP_ID, data_directory, set_autostart, worker_command
-from model_manager import validate_model
+from model_manager import validate_model, model_backend
 from setup_service import SetupService
 from system_events import SystemEvents
 from memory_monitor import MemoryMonitor
@@ -152,6 +152,7 @@ class Controller(QObject):
         self.stderr_tail = b""
         self.worker = None
         self.device_description = "процессор"
+        self.active_backend = model_backend(self.config.get("model_path", ""))
         self.pending_device = "auto"
         self.overlay = Overlay()
         self.overlay.set_wave_color(self.config.get("wave_color", "green"))
@@ -266,7 +267,7 @@ class Controller(QObject):
         self.pending_device = device
         self.settings.model_page.user_selected = True
         self.settings.model_page.set_busy(True, "Подготавливаем загрузку…")
-        self.setup.start("download", model_id, str(self.data_dir / "models"))
+        self.setup.start("download", model_id, str(self.data_dir / "models"), self.settings.model_page.backend.currentData())
 
     def cancel_download(self):
         self.setup.stop()
@@ -285,7 +286,10 @@ class Controller(QObject):
         if self.state in ("recording", "waiting_model", "processing", "canceling", "pasting", "loading", "unloading"):
             self.settings.model_page.message.setText("Дождитесь завершения текущей операции и повторите.")
             return
-        path = QFileDialog.getExistingDirectory(self.settings, "Папка модели faster-whisper")
+        if self.settings.model_page.backend.currentData() == "whispercpp":
+            path, _ = QFileDialog.getOpenFileName(self.settings, "Файл модели whisper.cpp GGML", "", "Модель GGML (*.bin)")
+        else:
+            path = QFileDialog.getExistingDirectory(self.settings, "Папка модели faster-whisper")
         if path:
             self.activate_model(path, device, "local")
 
@@ -300,6 +304,7 @@ class Controller(QObject):
             self.settings.model_page.set_busy(False, "Модель скачана. Завершите диктовку и нажмите «Скачать и настроить» ещё раз.")
             return
         self.config.update(model_path=str(path), model_id=model_id, device=device)
+        self.active_backend = model_backend(path)
         self.save_config()
         self.settings.model_page.set_busy(False, "Проверяем модель. Первый запуск может занять несколько минут…")
         self.restart_worker()
@@ -359,7 +364,7 @@ class Controller(QObject):
         available = (self.state == "idle" and self.ready and not self.suspended
                      and not self.hold_timer.isActive() and not (self.hook and self.hook.state.held))
         self.settings.free_memory.setEnabled(available)
-        self.settings.precision.setEnabled(self.state in ("idle", "unloaded", "setup", "error"))
+        self.settings.precision.setEnabled(self.active_backend != "whispercpp" and self.state in ("idle", "unloaded", "setup", "error"))
         seconds = self.config.get("idle_unload_seconds", 300)
         if available and seconds and time.monotonic() - self.idle_since >= seconds:
             self.release_memory()
@@ -386,7 +391,7 @@ class Controller(QObject):
         self.memory_monitor.set_pids(self.memory_pids())
 
     def change_precision(self, precision):
-        if (precision not in ("auto", "int8") or self.state not in ("idle", "unloaded", "setup", "error")
+        if (self.active_backend == "whispercpp" or precision not in ("auto", "int8") or self.state not in ("idle", "unloaded", "setup", "error")
                 or self.shutting_down or self.suspended or self.hold_timer.isActive()
                 or (self.hook and self.hook.state.held)):
             self.settings.precision.blockSignals(True)
@@ -525,12 +530,16 @@ class Controller(QObject):
                 self.state = "idle"
             self.idle_since = time.monotonic()
             LOG.info("%s worker ready in %s seconds", event.get("device"), event.get("load_seconds"))
-            self.device_description = "видеокарта NVIDIA" if event.get("device") == "cuda" else "процессор"
+            self.device_description = {"cuda": "видеокарта NVIDIA", "metal": "GPU · Metal"}.get(event.get("device"), "процессор")
+            self.active_backend = event.get("backend", "faster-whisper")
+            self.settings.set_engine(event.get("device"), self.active_backend, event.get("compute_type"))
             self.settings.set_status(f"Готов к диктовке · {self.device_description}")
-            self.settings.engine_label.setText(f"Whisper · {self.device_description} · {event.get('compute_type', 'auto')}\nМодель загружена в память.")
+            engine = "whisper.cpp" if self.active_backend == "whispercpp" else "Whisper"
+            self.settings.engine_label.setText(f"{engine} · {self.device_description} · {event.get('compute_type', 'auto')}\nМодель загружена в память.")
             self.settings.model_page.set_ready(self.config["model_path"], self.device_description)
             if event.get("fallback"):
-                self.settings.model_page.message.setText("Ускорение NVIDIA недоступно. Модель готова и работает на процессоре.")
+                gpu = "Metal" if self.active_backend == "whispercpp" else "NVIDIA"
+                self.settings.model_page.message.setText(f"Ускорение {gpu} недоступно. Модель готова и работает на процессоре.")
             if waiting:
                 audio, self.pending_audio = self.pending_audio, None
                 self.submit_audio(audio)

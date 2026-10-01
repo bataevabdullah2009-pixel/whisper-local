@@ -378,7 +378,8 @@ class SettingsWindow(QWidget):
         self.precision=ChoiceBox(); self.precision.setAccessibleName('Точность вычислений'); self.precision.setFixedWidth(225)
         self.precision.addItem('Автоматически','auto'); self.precision.addItem('INT8 · меньше памяти','int8')
         self.precision.setCurrentIndex(max(0,self.precision.findData(config.get('compute_type','auto'))))
-        self.add_row(memory_layout,'Режим вычислений','INT8 может менять скорость и точность.\nСмена режима перезагрузит активную модель.',self.precision,rule=False)
+        self.precision_note=self.add_row(memory_layout,'Режим вычислений','INT8 может менять скорость и точность.\nСмена режима перезагрузит активную модель.',self.precision,rule=False)
+        self.memory_device='cpu'
         memory_layout.addStretch()
         self.free_memory=QPushButton('Освободить память'); self.free_memory.setObjectName('primary'); self.free_memory.setEnabled(False)
         self.free_memory.clicked.connect(self.freeMemoryRequested); memory_layout.addWidget(self.free_memory,0,Qt.AlignmentFlag.AlignRight)
@@ -405,10 +406,19 @@ class SettingsWindow(QWidget):
             return 'Нет данных' if value is None else f'{value / 1024**2:.0f} МиБ'
         self.ram_usage.setText(amount(values.get('rss_bytes')))
         if native.IS_MAC:
-            self.vram_usage.setText('CPU · отдельная VRAM не используется')
+            self.vram_usage.setText('Metal · память GPU\nОтдельный расход недоступен' if self.memory_device=='metal' else 'CPU · отдельная VRAM не используется')
         else:
             dedicated,shared=values.get('dedicated_bytes'),values.get('shared_bytes')
             self.vram_usage.setText('Нет данных' if dedicated is None else f'{amount(dedicated)} отдельно\n{amount(shared)} из RAM')
+    def set_engine(self,device,backend,compute):
+        self.memory_device=device
+        self.precision.blockSignals(True)
+        cpp=backend=='whispercpp'
+        self.precision.setItemText(0,f'По файлу · {compute}' if cpp else 'Автоматически')
+        self.precision.setCurrentIndex(0 if cpp else max(0,self.precision.findData(self.config.get('compute_type','auto'))))
+        self.precision.blockSignals(False)
+        self.precision.setEnabled(not cpp)
+        self.precision_note.setText('Точность whisper.cpp задаётся файлом модели.\nПоддерживаются FP16 и импорт GGML Q8_0.' if cpp else 'INT8 может менять скорость и точность.\nСмена режима перезагрузит активную модель.')
     def _describe_sound(self):
         descriptions={'flow':'Сигналы из официальной веб-демонстрации Wispr Flow.',
                       'console':'Мягкие объёмные тона в духе игровых консолей.',
@@ -416,9 +426,10 @@ class SettingsWindow(QWidget):
         self.sound_description.setText(descriptions[self.sound_style.currentData()])
     def add_row(self,parent,title,description,control,rule=True):
         row=QHBoxLayout(); row.setContentsMargins(0,15,0,15); row.setSpacing(18); words=QVBoxLayout(); words.setSpacing(5)
-        words.addWidget(label(title,'section')); words.addWidget(label(description,'description')); row.addLayout(words,1); row.addWidget(control,0,Qt.AlignmentFlag.AlignVCenter); parent.addLayout(row)
+        words.addWidget(label(title,'section')); description_label=label(description,'description'); words.addWidget(description_label); row.addLayout(words,1); row.addWidget(control,0,Qt.AlignmentFlag.AlignVCenter); parent.addLayout(row)
         if rule:
             line=QFrame(); line.setObjectName('rule'); line.setFixedHeight(1); parent.addWidget(line)
+        return description_label
     def show_page(self,index):
         self.pages.setCurrentIndex(index); self.heading.setText(self.PAGE_NAMES[index])
         for i,button in enumerate(self.nav): button.setChecked(i==index)

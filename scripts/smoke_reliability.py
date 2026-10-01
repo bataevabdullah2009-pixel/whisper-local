@@ -21,7 +21,7 @@ from runtime import worker_command
 parser = argparse.ArgumentParser()
 parser.add_argument("--model", type=Path)
 parser.add_argument("--worker", type=Path)
-parser.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
+parser.add_argument("--device", choices=("cpu", "cuda", "metal", "auto"), default="cpu")
 parser.add_argument("--cuda", default="")
 parser.add_argument("--audio", type=Path, required=True)
 args = parser.parse_args()

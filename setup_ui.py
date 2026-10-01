@@ -2,7 +2,7 @@
 from pathlib import Path
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QPushButton, QProgressBar
-from model_manager import CATALOG, MODELS, model_size
+from model_manager import catalog_for, model_backend, model_size
 import platform_native as native
 
 
@@ -27,12 +27,24 @@ class ModelPage(QWidget):
         layout.setSpacing(12)
         layout.addWidget(text("Подготовим диктовку", "section"))
         layout.addWidget(text("Скачайте модель один раз. После этого голос распознаётся на вашем компьютере, без интернета."))
+        self.backend = QComboBox()
+        self.backend.setAccessibleName("Движок распознавания")
+        if native.IS_MAC:
+            self.backend.addItem("Mac · Metal / CPU · whisper.cpp", "whispercpp")
+        self.backend.addItem("CPU / NVIDIA · faster-whisper", "faster-whisper")
+        initial = model_backend(config["model_path"]) if config.get("model_path") else "whispercpp" if native.IS_MAC else "faster-whisper"
+        self.backend.setCurrentIndex(max(0, self.backend.findData(initial)))
+        self.backend.setVisible(native.IS_MAC)
+        layout.addWidget(self.backend)
+        self.engine_note = text("")
+        self.engine_note.setVisible(native.IS_MAC)
+        layout.addWidget(self.engine_note)
         self.hardware = text("Проверяем ваш компьютер…", "detail")
         layout.addWidget(self.hardware)
         self.model = QComboBox()
         self.model.setAccessibleName("Модель распознавания")
-        for model in CATALOG:
-            self.model.addItem(f"{model['title']} · {model_size(model['id']) / 1024**2:.0f} МБ", model["id"])
+        for model in catalog_for(self.backend.currentData()):
+            self.model.addItem(f"{model['title']} · {model_size(model['id'], self.backend.currentData()) / 1024**2:.0f} МБ", model["id"])
         self.model.setCurrentIndex(max(0, self.model.findData(config.get("model_id", "small"))))
         layout.addWidget(self.model)
         self.description = text("")
@@ -46,12 +58,14 @@ class ModelPage(QWidget):
         self.device.setAccessibleName("Где распознавать речь")
         self.device.addItem("Автоматически", "auto")
         self.device.addItem("Процессор", "cpu")
-        if not native.IS_MAC:
+        if native.IS_MAC and self.backend.currentData() == "whispercpp":
+            self.device.addItem("GPU · Metal", "metal")
+        elif not native.IS_MAC:
             self.device.addItem("Видеокарта NVIDIA", "cuda")
         self.device.setCurrentIndex(max(0, self.device.findData(config.get("device", "auto"))))
         row.addWidget(self.device, 1)
         layout.addLayout(row)
-        self.message = text("Выберите модель или используйте уже скачанную папку.")
+        self.message = text("Выберите модель или импортируйте уже скачанную.")
         layout.addWidget(self.message)
         self.progress = QProgressBar()
         self.progress.setAccessibleName("Загрузка модели")
@@ -78,18 +92,45 @@ class ModelPage(QWidget):
         self.practice.clicked.connect(self.practiceRequested)
         self.practice.hide()
         layout.addWidget(self.practice)
+        self.backend.currentIndexChanged.connect(self._backend_changed)
+        self._engine_note()
+
+    def _engine_note(self):
+        cpp = self.backend.currentData() == "whispercpp"
+        self.engine_note.setText("Для Metal нужна модель whisper.cpp GGML. Скачивание начнётся только по кнопке. Можно импортировать файл .bin."
+            if cpp else "Существующие модели CTranslate2 работают на CPU. Их файлы сохраняются при переходе на Metal.")
+        self.local.setText("Выбрать файл…" if cpp else "Выбрать папку…")
+
+    def _backend_changed(self):
+        selected, device = self.model.currentData(), self.device.currentData()
+        self.model.blockSignals(True)
+        self.model.clear()
+        for model in catalog_for(self.backend.currentData()):
+            self.model.addItem(f"{model['title']} · {model_size(model['id'], self.backend.currentData()) / 1024**2:.0f} МБ", model["id"])
+        self.model.setCurrentIndex(max(0, self.model.findData(selected)))
+        self.model.blockSignals(False)
+        self.device.clear()
+        self.device.addItem("Автоматически", "auto")
+        self.device.addItem("Процессор", "cpu")
+        if native.IS_MAC and self.backend.currentData() == "whispercpp":
+            self.device.addItem("GPU · Metal", "metal")
+        elif not native.IS_MAC:
+            self.device.addItem("Видеокарта NVIDIA", "cuda")
+        self.device.setCurrentIndex(max(0, self.device.findData(device)))
+        self._describe()
+        self._engine_note()
 
     def _selected(self, index):
         self.user_selected = True
 
     def _describe(self):
-        model = MODELS[self.model.currentData()]
+        model = next(model for model in catalog_for(self.backend.currentData()) if model["id"] == self.model.currentData())
         self.description.setText(f"{model['description']} Whisper {model['id']}.")
 
     def set_hardware(self, info):
         if native.IS_MAC:
             chip = "Apple Silicon" if info.get("architecture") == "arm64" else "Intel"
-            self.hardware.setText(f"Mac · {chip} · распознавание на процессоре")
+            self.hardware.setText(f"Mac · {chip} · Metal / CPU · backend проверим при запуске модели")
         else:
             self.hardware.setText("Windows · NVIDIA обнаружена; ускорение проверим при запуске модели"
                                   if info.get("cuda") else "Windows · распознавание на процессоре")
@@ -99,7 +140,7 @@ class ModelPage(QWidget):
             self.hardware.setText(self.hardware.text() + f" · {info['ram_gb']} ГБ памяти")
 
     def set_busy(self, busy, message=""):
-        for widget in (self.model, self.device, self.local, self.download):
+        for widget in (self.backend, self.model, self.device, self.local, self.download):
             widget.setEnabled(not busy)
         self.cancel.setVisible(busy)
         self.progress.setVisible(busy)

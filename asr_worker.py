@@ -73,7 +73,7 @@ def main() -> int:
             args.model, args.device, WhisperModel, ctranslate2.get_supported_compute_types,
             max(1, min(8, (os.cpu_count() or 2) // 2)), args.compute_type)
         get_speech_timestamps(np.zeros(16000, dtype=np.float32), VadOptions())
-        emit({"type": "ready", "device": device, "compute_type": compute_type, "fallback": fallback,
+        emit({"type": "ready", "backend": "faster-whisper", "device": device, "compute_type": compute_type, "fallback": fallback,
               "load_seconds": round(time.monotonic() - started, 2)})
     except Exception as error:
         emit({"type": "fatal", "error": str(error)})
