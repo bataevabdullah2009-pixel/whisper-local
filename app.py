@@ -1,4 +1,4 @@
-"""Whisper Local: hold Left Alt, speak, release to paste into the original field."""
+"""Whisper Local: offline dictation with configurable hold/toggle shortcuts."""
 from __future__ import annotations
 
 import argparse
@@ -28,6 +28,7 @@ from model_manager import validate_model, model_backend
 from setup_service import SetupService
 from system_events import SystemEvents
 from memory_monitor import MemoryMonitor
+from dictation_hotkey import parse_shortcut, normalize_config
 
 ROOT = Path(__file__).resolve().parent
 LOG = logging.getLogger("WhisperLocal")
@@ -48,6 +49,7 @@ def load_config(data_dir):
         default["compute_type"] = "auto"
     if default.get("idle_unload_seconds") not in (0, 60, 300, 600, 1800):
         default["idle_unload_seconds"] = 300
+    normalize_config(default, native.IS_MAC)
     return default
 
 
@@ -133,11 +135,13 @@ class PasteManager(QObject):
 
 
 class Controller(QObject):
-    hotkey = Signal(str)
+    hotkey = Signal(str, int)
 
     def __init__(self, app, data_dir, background=False, no_hook=False):
         super().__init__()
         self.app, self.data_dir = app, data_dir
+        self.no_hook = no_hook
+        self.hook_generation = 0
         self.config = load_config(data_dir)
         self.state = "loading"
         self.ready = False
@@ -179,6 +183,7 @@ class Controller(QObject):
         self.settings.copyRequested.connect(self.copy_last)
         self.settings.recordRequested.connect(self.practice_recording)
         self.settings.permissionsRequested.connect(self.request_permissions)
+        self.settings.dictationRequested.connect(self.change_dictation)
         self.settings.model_page.downloadRequested.connect(self.download_model)
         self.settings.model_page.importRequested.connect(self.import_model)
         self.settings.model_page.cancelRequested.connect(self.cancel_download)
@@ -197,6 +202,9 @@ class Controller(QObject):
         self.meter_timer = QTimer(self)
         self.meter_timer.setInterval(33)
         self.meter_timer.timeout.connect(self.meter)
+        self.focus_timer = QTimer(self)
+        self.focus_timer.setInterval(200)
+        self.focus_timer.timeout.connect(self.check_recording_focus)
         self.operation_timer = QTimer(self)
         self.operation_timer.setSingleShot(True)
         self.operation_timer.timeout.connect(self._timeout)
@@ -221,7 +229,6 @@ class Controller(QObject):
         if not no_hook:
             self.start_hook()
         self.tray = QSystemTrayIcon(app_icon(), self)
-        self.tray.setToolTip(f"Whisper Local · удерживайте {native.HOTKEY_NAME}")
         menu = QMenu()
         menu.setStyleSheet("QMenu { padding:6px; } QMenu::item { padding:7px 24px; }")
         menu.addAction("Открыть Whisper Local", self.show_settings)
@@ -229,6 +236,7 @@ class Controller(QObject):
         self.pause_action = QAction("Приостановить диктовку", menu)
         self.pause_action.setCheckable(True)
         self.pause_action.toggled.connect(self.set_paused)
+        self.update_hotkey_hint()
         menu.addAction(self.pause_action)
         self.copy_action = menu.addAction("Скопировать последний текст", self.copy_last)
         self.copy_action.setEnabled(False)
@@ -243,10 +251,21 @@ class Controller(QObject):
         self.start_worker()
         self.probe.start("probe")
 
-    def start_hook(self):
+    def start_hook(self, shortcut=None, mode=None):
+        try:
+            native.check_shortcut(parse_shortcut(shortcut or self.config["hotkey"], native.IS_MAC))
+        except (OSError, ValueError) as error:
+            self.settings.permission_note.setText(str(error))
+            self.settings.permission_note.show()
+            return False
         if self.hook:
             self.hook.stop()
-        self.hook = native.KeyboardHook(self.hotkey.emit, self.config["hold_ms"] / 1000)
+        self.hook_generation += 1
+        generation = self.hook_generation
+        self.hook = native.KeyboardHook(lambda event: self.hotkey.emit(event, generation),
+            self.config["hold_ms"] / 1000, shortcut or self.config["hotkey"],
+            mode or self.config["dictation_mode"])
+        self.hook.enabled = False
         self.hook.start()
         self.hook.ready.wait(3)
         warning = ""
@@ -255,6 +274,42 @@ class Controller(QObject):
             LOG.error("Hotkey hook failed: %s", self.hook.error)
         self.settings.permission_note.setText(warning)
         self.settings.permission_note.setVisible(bool(warning))
+        self.hook.enabled = not warning and not (hasattr(self, "pause_action") and self.pause_action.isChecked())
+        return not warning
+
+    def update_hotkey_hint(self):
+        shortcut = parse_shortcut(self.config["hotkey"], native.IS_MAC).title(native.IS_MAC)
+        hint = f"нажмите {shortcut} для начала / остановки" if self.config["dictation_mode"] == "toggle" else f"удерживайте {shortcut}"
+        self.tray.setToolTip("Whisper Local · пауза" if self.pause_action.isChecked() else f"Whisper Local · {hint}")
+        self.settings.refresh_dictation_description()
+
+    def change_dictation(self, value, mode):
+        if (self.shutting_down or self.suspended or self.state in
+                ("recording", "waiting_model", "processing", "canceling", "pasting", "unloading")
+                or self.hold_timer.isActive() or (self.hook and self.hook.state.owned_primary)):
+            self.settings.dictation_error("Завершите диктовку и отпустите клавиши перед сменой настроек.")
+            return False
+        try:
+            shortcut = parse_shortcut(value, native.IS_MAC)
+            if mode not in ("hold", "toggle"):
+                raise ValueError("Выберите режим диктовки.")
+        except ValueError as error:
+            self.settings.dictation_error(str(error))
+            return False
+        previous = self.config["hotkey"], self.config["dictation_mode"]
+        if not self.no_hook and ((shortcut.value, mode) != previous or not self.hook or self.hook.error):
+            previous_generation = self.hook_generation
+            if not self.start_hook(shortcut.value, mode):
+                message = self.settings.permission_note.text()
+                if self.hook_generation != previous_generation:
+                    self.start_hook(*previous)
+                self.settings.dictation_error(message + " Прежние настройки сохранены.")
+                return False
+        self.config.update(hotkey=shortcut.value, dictation_mode=mode)
+        self.save_config()
+        self.settings.set_dictation_settings(shortcut.value, mode)
+        self.update_hotkey_hint()
+        return True
 
     def request_permissions(self):
         native.request_permissions()
@@ -412,7 +467,7 @@ class Controller(QObject):
             self.cancel()
         if self.hook:
             self.hook.enabled = not paused
-        self.tray.setToolTip("Whisper Local · пауза" if paused else f"Whisper Local · удерживайте {native.HOTKEY_NAME}")
+        self.update_hotkey_hint()
         self.settings.set_status("Диктовка приостановлена через меню в трее." if paused
                                  else f"Готов к диктовке · {self.device_description}" if self.ready else "Сначала подготовьте модель")
 
@@ -629,18 +684,29 @@ class Controller(QObject):
         if self.hook:
             self.hook.escape_enabled = enabled
 
-    def on_hotkey(self, event):
+    def on_hotkey(self, event, generation=None):
+        if generation is not None and generation != self.hook_generation:
+            return
         if self.shutting_down or self.suspended or not self.system_events.check():
             return
         if event == "down":
-            # A second Alt press must not redirect a pending transcript to a new window.
-            if self.state not in ("recording", "waiting_model", "processing", "canceling", "pasting"):
-                self.target = native.focus_target()
-            self.hold_timer.start()
+            if self.pause_action.isChecked():
+                return
+            if self.config["dictation_mode"] == "toggle" and self.state == "recording":
+                self.finish_recording()
+                return
+            # Never redirect an in-flight result to the window of a later press.
+            if self.state in ("recording", "waiting_model", "processing", "canceling", "pasting"):
+                return
+            self.target = native.focus_target()
+            if self.config["dictation_mode"] == "toggle":
+                self.begin_recording()
+            else:
+                self.hold_timer.start()
         elif event == "up":
             # A release can race the 180 ms Qt timer under load; never leave a recording running.
             self.hold_timer.stop()
-            if self.state == "recording":
+            if self.config["dictation_mode"] == "hold" and self.state == "recording":
                 self.finish_recording()
         elif event == "cancel":
             self.cancel()
@@ -651,7 +717,8 @@ class Controller(QObject):
     def begin_recording(self, manual=False):
         if self.shutting_down or self.suspended or not self.system_events.check():
             return
-        if not manual and self.hook and (not self.hook.state.held or self.hook.state.canceled):
+        if (not manual and self.config["dictation_mode"] == "hold" and self.hook
+                and (not self.hook.state.held or self.hook.state.canceled)):
             return
         if self.pause_action.isChecked():
             return
@@ -669,6 +736,8 @@ class Controller(QObject):
             return
         if self.state != "idle" and not loading:
             return
+        if self.recording_focus_changed():
+            return
         self.overlay.demo = False
         try:
             self.recorder.start(self.config.get("microphone"), self.config.get("microphone_name"))
@@ -684,6 +753,19 @@ class Controller(QObject):
         self.overlay.present("recording")
         self.sounds.play("start")
         self.meter_timer.start()
+        self.focus_timer.start()
+
+    def recording_focus_changed(self):
+        if native.target_known(self.target) and not native.same_target(self.target):
+            self.cancel()
+            self.overlay.present("canceled", timeout=2, title="Поле изменилось")
+            self.settings.set_status("Диктовка отменена: исходное поле ввода потеряло фокус.")
+            return True
+        return False
+
+    def check_recording_focus(self):
+        if self.state == "recording" and self.system_events.check():
+            self.recording_focus_changed()
 
     def meter(self):
         if self.state != "recording":
@@ -703,8 +785,11 @@ class Controller(QObject):
     def finish_recording(self):
         if self.state != "recording" or not self.system_events.check():
             return
+        if self.recording_focus_changed():
+            return
         self.settings.record_button.setText("Начать проверку микрофона")
         self.meter_timer.stop()
+        self.focus_timer.stop()
         try:
             if not self.recorder.healthy():
                 raise RuntimeError("Microphone stopped delivering audio")
@@ -779,6 +864,9 @@ class Controller(QObject):
     def cancel(self, *, restart_asr=True):
         self.settings.record_button.setText("Начать проверку микрофона")
         self.hold_timer.stop()
+        self.focus_timer.stop()
+        if self.hook and self.hook.state.held:
+            self.hook.state.canceled = True
         self.paste_manager.cancel()
         was_active = self.state in ("recording", "waiting_model", "processing", "pasting")
         self.pending_audio = None
@@ -828,6 +916,7 @@ class Controller(QObject):
         self.probe.stop()
         self.hold_timer.stop()
         self.meter_timer.stop()
+        self.focus_timer.stop()
         self.operation_timer.stop()
         self.idle_timer.stop()
         self.memory_monitor.stop()
