@@ -49,14 +49,28 @@ def receive(seconds=5):
     return queue.get_nowait()
 
 
+def fixture_target():
+    identified = []
+    def ready():
+        target = native.focus_target()
+        if target[2] is not None and target[2][0] == process.pid:
+            identified[:] = [target]
+            return True
+        return False
+    # Accessibility providers can initialize after the window's first paint.
+    # Only the owned fixture process may participate in this native paste test.
+    wait_until(ready)
+    return identified[0]
+
+
 try:
     assert receive(10)["ready"]
-    first = native.focus_target()
+    first = fixture_target()
     assert first[2] is not None, "Qt field not identified by UI Automation"
     assert native.same_target(first)
     command("second")
     assert receive()["focused"] == "second"
-    second = native.focus_target()
+    second = fixture_target()
     assert first[:2] == second[:2], "Fixture must exercise fields sharing HWNDs"
     assert first[2] != second[2], "Focused fields must have different UIA runtime IDs"
     assert not native.same_target(first)
@@ -66,7 +80,7 @@ try:
     assert clipboard.text() == "fixture original clipboard"
     command("first")
     assert receive()["focused"] == "first"
-    manager.paste("fixture transcript", native.focus_target())
+    manager.paste("fixture transcript", fixture_target())
     wait_until(lambda: len(results) == 2)
     assert results[-1][0], results[-1]
     command("verify")
