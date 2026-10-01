@@ -126,6 +126,13 @@ class ControllerReliability(unittest.TestCase):
         worker.kill.assert_not_called()
         controller.worker = None
 
+    def test_offscreen_capsule_never_passes_fake_handle_to_native_api(self):
+        controller = self.controller()
+        with patch("ui.native.no_activate", side_effect=AssertionError("Not a native handle")) as native_call:
+            controller.overlay.present("canceled", timeout=.1)
+        native_call.assert_not_called()
+        self.assertEqual(controller.overlay.mode, "canceled")
+
     def test_duplicate_result_is_not_pasted_twice(self):
         controller = self.controller()
         controller.state, controller.ready, controller.request_id = "processing", True, "current"

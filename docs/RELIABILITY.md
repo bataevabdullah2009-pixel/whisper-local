@@ -25,7 +25,7 @@ Windows source checkout, Python 3.12.14, faster-whisper 1.2.1 and the pinned Whi
 
 | Check | Result |
 | --- | --- |
-| Unit/UI suite | 53 tests passed |
+| Unit/UI suite | 54 tests passed |
 | Real CPU recognition cancellation | Process exit in 0.062 seconds; model reload, next public speech and empty silence passed |
 | Real NVIDIA CUDA recognition cancellation | Process exit in 0.094 seconds; model reload, next public speech and empty silence passed |
 | Native Windows UI Automation and SendInput | Two Qt fields sharing HWNDs distinguished; changed field refused; exact paste and clipboard restoration passed |

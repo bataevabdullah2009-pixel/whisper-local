@@ -86,7 +86,11 @@ class Overlay(QWidget):
         self.title=title or titles.get(mode,mode); self.setAccessibleName(self.title); self.setAccessibleDescription(message)
         self.setFixedSize(428,230) if message else self.setFixedSize(300,96)
         if mode=='recording': self.levels=deque([0.]*28,maxlen=28); self.display_levels=[0.]*28
-        self._position(); self.show(); native.no_activate(int(self.winId())); self.timer.start()
+        self._position(); self.show()
+        # Offscreen/minimal Qt handles are not HWNDs or NSViews.
+        if QApplication.platformName() in ('windows','cocoa'):
+            native.no_activate(int(self.winId()))
+        self.timer.start()
         if not was_visible:
             self.animation.stop(); self.setWindowOpacity(0); self.animation.setStartValue(0.); self.animation.setEndValue(1.); self.animation.start()
         if timeout: self.hide_timer.start(int(timeout*1000))
