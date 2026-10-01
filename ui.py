@@ -306,7 +306,7 @@ class SettingsWindow(QWidget):
         self.hotkey_choice.addItem('Другое сочетание','custom')
         self.hotkey_modifiers=ChoiceBox(); self.hotkey_modifiers.setAccessibleName('Модификаторы горячей клавиши')
         names={'ctrl':'Ctrl','alt':'Option' if native.IS_MAC else 'Alt','shift':'Shift','cmd':'⌘'}
-        choices=((),('ctrl',),('alt',),('ctrl','shift'),('alt','shift'),('ctrl','alt'),('ctrl','alt','shift'))
+        choices=((),('ctrl',),('alt',),('shift',),('ctrl','shift'),('alt','shift'),('ctrl','alt'),('ctrl','alt','shift'))
         if native.IS_MAC:
             choices+= (('cmd',),('cmd','shift'),('alt','cmd'),('ctrl','cmd'),('ctrl','shift','cmd'),('alt','shift','cmd'),('ctrl','alt','cmd'),('ctrl','alt','shift','cmd'))
         for modifiers in choices:

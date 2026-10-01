@@ -49,7 +49,7 @@ Windows checks an actual registered-shortcut conflict without installing a hook;
 extended-key replay use a mocked hook boundary. Mac checks the event-tap boundary with mocks on all
 platforms, and checks real Carbon registration/collision/release on Mac CI.
 
-Windows development run: 132 tests, 131 passed and one Mac-only test skipped. This uses mocked
+Windows development run: 133 tests, 132 passed and one Mac-only test skipped. This uses mocked
 microphone/controller operations and an offscreen Qt settings render; it is not a real dictation check.
 Desktop CI results belong on the PR. Successful packaging/Carbon checks on a hosted Mac runner do
 not verify microphone access, event-tap permissions or insertion in applications on a physical Mac.

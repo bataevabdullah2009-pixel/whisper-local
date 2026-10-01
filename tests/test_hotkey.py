@@ -12,6 +12,7 @@ import numpy as np
 from PySide6.QtWidgets import QApplication
 
 from app import Controller, load_config
+import platform_native as native
 from dictation_hotkey import HotkeyState, normalize_config, parse_shortcut
 from hotkey_registration import MacShortcutReservation
 
@@ -275,6 +276,8 @@ class DictationController(unittest.TestCase):
         self.assertEqual((restored["hotkey"], restored["dictation_mode"]), ("ctrl+shift+space", "toggle"))
         self.assertIn("начала / остановки", self.c.tray.toolTip())
         self.assertIn("нажмите для начала", self.c.settings.practice_note.text())
+        self.assertTrue(self.c.change_dictation("shift+f9", "hold"))
+        self.assertEqual(self.c.settings.hotkey_modifiers.currentData(), "shift")
         self.assertTrue(self.c.change_dictation("default", "hold"))
         self.assertEqual(load_config(self.data)["hotkey"], "default")
 
@@ -284,7 +287,7 @@ class DictationController(unittest.TestCase):
             self.c.state = state
             self.assertFalse(self.c.change_dictation("ctrl+shift+space", "toggle"))
         self.c.state = "idle"
-        self.assertFalse(self.c.change_dictation("ctrl+v", "toggle"))
+        self.assertFalse(self.c.change_dictation("cmd+v" if native.IS_MAC else "ctrl+v", "toggle"))
         self.assertEqual(self.c.config, before)
 
     def test_conflict_restores_old_hook_and_does_not_persist_candidate(self):
@@ -350,6 +353,24 @@ class DictationController(unittest.TestCase):
 
 
 class MacBoundary(unittest.TestCase):
+    def test_enabled_symbolic_system_shortcuts_are_rejected_before_carbon_probe(self):
+        foundation = Mock()
+        entry = {"enabled": True, "value": {"parameters": [32, 49, (1 << 17) | (1 << 18)]}}
+        foundation.NSUserDefaults.standardUserDefaults.return_value.persistentDomainForName_.return_value = {
+            "AppleSymbolicHotKeys": {"fixture": entry}}
+        spec = importlib.util.spec_from_file_location("mac_conflict_test", Path(__file__).parents[1] / "macos_native.py")
+        module = importlib.util.module_from_spec(spec)
+        with patch.dict("sys.modules", {"Foundation": foundation, **{name: Mock() for name in
+                ("Quartz", "AppKit", "ApplicationServices", "CoreFoundation", "objc")}}):
+            spec.loader.exec_module(module)
+        with patch.object(module, "MacShortcutReservation") as reserve:
+            with self.assertRaisesRegex(OSError, "системных"):
+                module.check_shortcut(parse_shortcut("ctrl+shift+space", True))
+            reserve.assert_not_called()
+            entry["enabled"] = False
+            module.check_shortcut(parse_shortcut("ctrl+shift+space", True))
+            reserve.return_value.close.assert_called_once()
+
     @unittest.skipUnless(sys.platform == "darwin", "Carbon shortcut registration on macOS")
     def test_real_carbon_registration_collision_and_release(self):
         shortcut = parse_shortcut("ctrl+shift+f18", True)
@@ -374,6 +395,7 @@ class MacBoundary(unittest.TestCase):
                 return 0
             api.RegisterEventHotKey.side_effect = register
             reservation = MacShortcutReservation(parse_shortcut("shift+cmd+d", True))
+            self.assertEqual(api.RegisterEventHotKey.call_args.args[4], 1)
             reservation.close()
             reservation.close()
             api.UnregisterEventHotKey.assert_called_once()
