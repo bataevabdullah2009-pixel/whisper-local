@@ -50,6 +50,18 @@ The longest phrase at a matching position wins; replacements never cascade. Both
 backends use the same processed text for paste and manual copy. Rules persist only in local
 `config.json`; preview text is not saved. See [behavior and validation](docs/DICTIONARY.md).
 
+## Local text cleanup
+
+Enable **Очистка текста** (Text cleanup) in settings, then choose prose spacing
+cleanup and optional hesitation removal (`эээ`, `эм`, `uh`, `um`). With both enabled,
+`эээ,  привет ,мир!` becomes `привет, мир!`. Cleanup is off by default and changes
+take effect without reloading the model. A live preview includes the saved dictionary.
+
+Dictionary rules take priority and keep replacement spelling exact. Cleanup preserves
+paragraphs, typical technical tokens and quoted text; semantic filler words and repeated
+words stay unchanged. Processing is offline and preview text is not saved.
+See [rules, limits and validation](docs/TEXT-CLEANUP.md).
+
 ## Memory
 
 The **Память** (Memory) page shows RSS RAM for the application and its processes,

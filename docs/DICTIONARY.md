@@ -12,8 +12,8 @@ terms longer than 200 characters are rejected. The dictionary accepts up to 500 
 
 **Использовать замены при диктовке** enables or disables the dictionary immediately,
 without reloading the model. Turning it off keeps every rule and returns the original ASR
-text on the next result. Rules remain editable while disabled. Saving a rule or changing
-this switch writes the existing local `config.json`; the application reports storage errors.
+text on the next result if cleanup is also disabled. Rules remain editable while disabled.
+Saving a rule or changing this switch writes the existing local `config.json`; the application reports storage errors.
 There is no account, synchronization, model hint, model download or separate dictionary service.
 
 ## Matching behavior
@@ -32,8 +32,10 @@ There is no account, synchronization, model hint, model download or separate dic
   are normalized for duplicate detection. Replacement spacing inside a field is retained.
 
 For both faster-whisper and whisper.cpp, a valid, nonempty result passes through the dictionary
-after recognition and before insertion. Automatic paste, retry paste and manual copy share this
-same processed result. A retry never runs replacements again. Cancelled, stale and empty results
+after recognition and optional [local cleanup](TEXT-CLEANUP.md), before insertion. Enabled source
+matches are protected during cleanup; dictionary replacement output is kept exact. Automatic paste,
+retry paste and manual copy share this same processed result. A retry never runs replacements again.
+Cancelled, stale and empty results
 retain the existing safety checks. The rules and enabled state at result arrival are used;
 changing settings does not retroactively rewrite the previous result.
 
@@ -86,6 +88,6 @@ are still required. No physical validation is inferred from code checks or CI.
 
 ## Following stages
 
-The next separate PR addresses local spacing, punctuation and configurable filler removal.
+The separate [local cleanup stage](TEXT-CLEANUP.md) addresses prose spacing and configurable hesitation removal.
 More involved local rewriting is a later stage. Download improvements, Windows signing,
 macOS signing/notarization and preparation for public release follow; they are not part of this PR.
