@@ -31,7 +31,7 @@ class ModelPage(QWidget):
         self.backend.setAccessibleName("Движок распознавания")
         if native.IS_MAC:
             self.backend.addItem("Mac · Metal / CPU · whisper.cpp", "whispercpp")
-        self.backend.addItem("CPU / NVIDIA · faster-whisper", "faster-whisper")
+        self.backend.addItem("CPU · faster-whisper" if native.IS_MAC else "CPU / NVIDIA · faster-whisper", "faster-whisper")
         initial = model_backend(config["model_path"]) if config.get("model_path") else "whispercpp" if native.IS_MAC else "faster-whisper"
         self.backend.setCurrentIndex(max(0, self.backend.findData(initial)))
         self.backend.setVisible(native.IS_MAC)
