@@ -29,7 +29,7 @@ WL_API void * wl_create(const char * path, int gpu, int threads) {
         auto params = whisper_context_default_params();
         params.use_gpu = gpu != 0;
 #if defined(__APPLE__) && defined(__x86_64__)
-        params.flash_attn = gpu == 0; // older Intel Metal GPUs lack SIMD-group matrix kernels
+        params.flash_attn = false; // verified Intel CPU/Metal path; CPU Flash Attention timed out in CI
 #endif
         result->threads = std::max(1, threads);
         result->model = whisper_init_from_file_with_params(path, params);

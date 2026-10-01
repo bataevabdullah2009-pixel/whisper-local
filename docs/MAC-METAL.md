@@ -13,8 +13,9 @@ Intel Auto selects CPU: its hosted GPU was slower than CPU on the base fixture. 
 GPU/Metal remains available on both architectures. Readiness
 reports the backend of the initialized context; device enumeration/build flags alone do not
 prove acceleration. Metal initialization/kernel failure closes the failed context and retries
-the same local model on CPU. CPU and Apple Silicon Metal contexts use upstream's default
-Flash Attention; Intel Metal uses the compatible attention path. A context that already runs
+the same local model on CPU. Apple Silicon CPU/Metal contexts use upstream's default
+Flash Attention; Intel CPU/Metal use the compatible attention path (CPU Flash Attention exceeded
+the startup deadline in CI). A context that already runs
 successfully on CPU reports CPU
 fallback explicitly. CPU selection disables the GPU. Native FP16/Q8 precision comes from the
 model file, so the CTranslate2 runtime INT8 control is disabled for this backend.
