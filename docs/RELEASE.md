@@ -169,6 +169,41 @@ It exits nonzero for absent public-signature/accepted-notary manifests, wrong ha
 missing physical evidence, or unverified sound redistribution. Completed evidence is still
 subject to owner review before publication. No current record passes, and no release is published.
 
+## Publish a verified signed candidate
+
+The manual **Publish verified signed release** workflow in
+[publish.yml](../.github/workflows/publish.yml) publishes the existing signed packages without
+rebuilding them. Run it on `main` with the successful **Signed release candidates** run ID and a
+new `vMAJOR.MINOR.PATCH` tag. Both package source versions must match that tag; the current
+installer and Mac bundle version is `0.1.0`.
+
+Before dispatch, commit completed owner evidence as `docs/releases/<tag>.json` and release notes
+as `docs/releases/<tag>.md` through a reviewed PR into `main`. Copy the actual CI manifests
+unchanged into the evidence. The candidate source commit must be an ancestor of the publication
+commit: evidence can be committed after physical testing without rebuilding the tested packages.
+All physical and sound permission gates in the existing readiness validator remain mandatory.
+
+[publish_release.py](../scripts/publish_release.py) first runs with read-only repository permissions.
+It verifies the selected run's workflow, repository, manual event, `main` branch, successful result
+and source SHA; requires exactly three nonexpired artifacts; downloads each target separately;
+compares downloaded CI manifests and accepted/stapled notarization reports to owner evidence;
+and hashes all candidate bytes. Existing tags and draft or published releases are rejected.
+The publication job repeats this preflight with `contents: write`, atomically creates a new version
+tag at the exact candidate SHA, and creates a draft with all three packages, `SHA256SUMS` and
+`release-evidence.json`. It verifies uploaded asset names, sizes and GitHub SHA-256 digests
+(downloading and hashing the bytes if a digest is unavailable), then confirms the tag before
+publishing. It checks the published release and hashes again afterward.
+
+The owner authorized publication on 2026-10-02. The `release-publication` environment was
+configured that day for deployments from `main` only, with no required reviewers or extra
+approval gate. The separate `release-signing` environment retains its owner reviewer and
+requires the signing credentials described above.
+
+The helper never updates an existing tag, replaces an asset, resumes a draft or retries a remote
+mutation after an uncertain network outcome. If interrupted after tag/draft creation, inspect
+that exact version in GitHub before deciding how to recover. This no-overwrite behavior does
+not enable or claim GitHub's separate immutable Releases repository setting.
+
 ## Tool references
 
 - [Microsoft SignTool](https://learn.microsoft.com/en-us/windows/win32/seccrypto/signtool)
@@ -182,3 +217,6 @@ subject to owner review before publication. No current record passes, and no rel
   [PyObjC signing](https://pyobjc.readthedocs.io/en/latest/notes/codesigning.html), and
   [CFFI callback requirements](https://cffi.readthedocs.io/en/stable/using.html#callbacks)
 - [GitHub environment protection](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments)
+- [GitHub workflow run metadata](https://docs.github.com/en/rest/actions/workflow-runs),
+  [cross-run artifact downloads](https://docs.github.com/en/actions/tutorials/store-and-share-data),
+  and [release asset digests](https://docs.github.com/en/rest/releases/assets)
