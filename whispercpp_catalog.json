@@ -1,0 +1,17 @@
+[
+  {
+    "id": "base", "repo": "ggerganov/whisper.cpp", "revision": "5359861c739e955e79d9a303bcbc70fb988958b1",
+    "title": "Быстрая", "description": "Для коротких фраз и компьютеров с небольшой памятью.",
+    "files": [{"name": "ggml-base.bin", "size": 147951465, "sha256": "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe"}]
+  },
+  {
+    "id": "small", "repo": "ggerganov/whisper.cpp", "revision": "5359861c739e955e79d9a303bcbc70fb988958b1",
+    "title": "Сбалансированная", "description": "Хорошая отправная точка для русского и английского.",
+    "files": [{"name": "ggml-small.bin", "size": 487601967, "sha256": "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b"}]
+  },
+  {
+    "id": "turbo", "repo": "ggerganov/whisper.cpp", "revision": "5359861c739e955e79d9a303bcbc70fb988958b1",
+    "title": "Точная", "description": "Для сложной речи. Требует больше памяти.",
+    "files": [{"name": "ggml-large-v3-turbo.bin", "size": 1624555275, "sha256": "1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69"}]
+  }
+]

@@ -9,7 +9,7 @@ import hashlib
 import logging
 from pathlib import Path
 import wave
-import winsound
+import sys
 
 LOG = logging.getLogger("WhisperLocal")
 ASSETS = Path(__file__).resolve().parent / "assets" / "sounds"
@@ -67,7 +67,16 @@ class SoundCues:
         if int(self.config.get("sound_volume", 65)) <= 0:
             return
         try:
-            winsound.PlaySound(str(self.path_for(kind)),
-                               winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_NODEFAULT)
+            path = str(self.path_for(kind))
+            if sys.platform == "win32":
+                import winsound
+                winsound.PlaySound(path, winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_NODEFAULT)
+            elif sys.platform == "darwin":
+                from AppKit import NSSound
+                if getattr(self, "_playing", None):
+                    self._playing.stop()
+                self._playing = NSSound.alloc().initWithContentsOfFile_byReference_(path, True)
+                if self._playing:
+                    self._playing.play()
         except (OSError, RuntimeError, ValueError, wave.Error) as error:
             LOG.warning("Sound cue unavailable: %s", error)

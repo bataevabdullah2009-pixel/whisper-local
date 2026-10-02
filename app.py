@@ -1,4 +1,4 @@
-"""Whisper Local: hold Left Alt, speak, release to paste into the original field."""
+"""Whisper Local: offline dictation with configurable hold/toggle shortcuts."""
 from __future__ import annotations
 
 import argparse
@@ -12,21 +12,28 @@ from pathlib import Path
 import sys
 import time
 import uuid
-import winreg
 
 from PySide6.QtCore import (QObject, Signal, QTimer, QProcess, QProcessEnvironment,
                            QMimeData, QByteArray)
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
-from PySide6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
+from PySide6.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QFileDialog
 from PySide6.QtGui import QAction
 
 from audio_capture import Recorder
 from sound_cues import SoundCues
 from ui import Overlay, SettingsWindow, app_icon, prepare_fonts
-import windows_native as native
+import platform_native as native
+from runtime import APP_ID, data_directory, set_autostart, worker_command
+from model_manager import validate_model, model_backend
+from download_state import load_pending, save_pending, clear_pending
+from setup_service import SetupService
+from system_events import SystemEvents
+from memory_monitor import MemoryMonitor
+from dictation_hotkey import parse_shortcut, normalize_config
+from user_dictionary import UserDictionary, normalize_config as normalize_dictionary_config
+from text_cleanup import TextCleanup, normalize_config as normalize_cleanup_config
 
 ROOT = Path(__file__).resolve().parent
-DEFAULT_INSTALL = Path.home() / "Documents" / "WhisperLocal"
 LOG = logging.getLogger("WhisperLocal")
 
 
@@ -41,40 +48,37 @@ def load_config(data_dir):
     default["hold_ms"] = max(120, min(700, int(default["hold_ms"])))
     default["max_recording_seconds"] = max(10, min(180, int(default["max_recording_seconds"])))
     default["sound_volume"] = max(0, min(100, int(default.get("sound_volume", 65))))
+    if default.get("compute_type") not in ("auto", "int8"):
+        default["compute_type"] = "auto"
+    if default.get("idle_unload_seconds") not in (0, 60, 300, 600, 1800):
+        default["idle_unload_seconds"] = 300
+    normalize_config(default, native.IS_MAC)
+    normalize_dictionary_config(default)
+    normalize_cleanup_config(default)
     return default
-
-
-def set_autostart(enabled, data_dir):
-    with winreg.CreateKey(winreg.HKEY_CURRENT_USER,
-                         r"Software\Microsoft\Windows\CurrentVersion\Run") as key:
-        if enabled:
-            pythonw = Path(sys.executable).with_name("pythonw.exe")
-            command = f'"{pythonw}" "{ROOT / "app.py"}" --data-dir "{data_dir}" --background'
-            winreg.SetValueEx(key, "WhisperLocal", 0, winreg.REG_SZ, command)
-        else:
-            try:
-                winreg.DeleteValue(key, "WhisperLocal")
-            except FileNotFoundError:
-                pass
 
 
 class PasteManager(QObject):
     finished = Signal(bool, str)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, allowed=None):
         super().__init__(parent)
         self.generation = 0
+        self.allowed = allowed or (lambda: True)
+        self.restore_pending = None
 
     def cancel(self):
         self.generation += 1
+        if self.restore_pending:
+            self.restore_pending()
 
     def paste(self, text, target):
-        self.generation += 1
+        self.cancel()
         generation = self.generation
         deadline = time.monotonic() + 3.0
 
         def attempt():
-            if generation != self.generation:
+            if not self.allowed() or generation != self.generation:
                 return
             if not native.same_target(target):
                 self.finished.emit(False, "Поле ввода изменилось. Нажмите «Копировать» и вставьте текст.")
@@ -92,19 +96,27 @@ class PasteManager(QObject):
                 for format_name in mime.formats():
                     previous[format_name] = QByteArray(mime.data(format_name))
             clipboard.setText(text)
-            sequence = native.user32.GetClipboardSequenceNumber()
+            sequence = native.clipboard_sequence()
 
             def restore():
-                if native.user32.GetClipboardSequenceNumber() != sequence:
+                if self.restore_pending is restore:
+                    self.restore_pending = None
+                if native.clipboard_sequence() != sequence:
                     return  # Never overwrite something the user copied in the meantime.
                 old = QMimeData()
                 for name, value in previous.items():
                     old.setData(name, value)
                 clipboard.setMimeData(old)
 
+            self.restore_pending = restore
+
             def send():
-                if generation != self.generation:
+                if not self.allowed() or generation != self.generation:
                     restore()
+                    return
+                if time.monotonic() >= deadline:
+                    restore()
+                    self.finished.emit(False, "Вставка задержалась. Текст доступен для копирования.")
                     return
                 if not native.same_target(target):
                     restore()
@@ -128,15 +140,21 @@ class PasteManager(QObject):
 
 
 class Controller(QObject):
-    hotkey = Signal(str)
+    hotkey = Signal(str, int)
 
     def __init__(self, app, data_dir, background=False, no_hook=False):
         super().__init__()
         self.app, self.data_dir = app, data_dir
+        self.no_hook = no_hook
+        self.hook_generation = 0
         self.config = load_config(data_dir)
+        self.dictionary = UserDictionary(self.config["dictionary_rules"], self.config["dictionary_enabled"])
+        self.cleanup = TextCleanup(self.config)
         self.state = "loading"
         self.ready = False
         self.shutting_down = False
+        self.suspended = False
+        self.worker_restart = False
         self.request_id = None
         self.last_text = ""
         self.target = None
@@ -144,14 +162,18 @@ class Controller(QObject):
         self.stdout_buffer = b""
         self.stderr_tail = b""
         self.worker = None
+        self.device_description = "процессор"
+        self.active_backend = model_backend(self.config.get("model_path", ""))
+        self.pending_device = "auto"
         self.overlay = Overlay()
         self.overlay.set_wave_color(self.config.get("wave_color", "green"))
         self.overlay.set_style(self.config.get("bar_style", "flow"))
         self.overlay.set_anchor(self.config.get("bar_position"))
         self.settings = SettingsWindow(self.config)
+        self.settings.model_page.restore_pending(load_pending(data_dir))
         self.sounds = SoundCues(data_dir, self.config)
         self.recorder = Recorder(self.config["max_recording_seconds"])
-        self.paste_manager = PasteManager(self)
+        self.paste_manager = PasteManager(self, self.can_paste)
         self.paste_manager.finished.connect(self._pasted)
         self.overlay.cancelRequested.connect(self.cancel)
         self.overlay.finishRequested.connect(self.finish_if_recording)
@@ -164,7 +186,22 @@ class Controller(QObject):
         self.settings.previewSoundRequested.connect(lambda kind: self.sounds.play(kind, force=True))
         self.settings.resetPositionRequested.connect(self.reset_bar_position)
         self.settings.retryRequested.connect(self.restart_worker)
+        self.settings.freeMemoryRequested.connect(self.release_memory)
+        self.settings.precisionRequested.connect(self.change_precision)
         self.settings.copyRequested.connect(self.copy_last)
+        self.settings.recordRequested.connect(self.practice_recording)
+        self.settings.permissionsRequested.connect(self.request_permissions)
+        self.settings.dictationRequested.connect(self.change_dictation)
+        self.settings.model_page.downloadRequested.connect(self.download_model)
+        self.settings.model_page.importRequested.connect(self.import_model)
+        self.settings.model_page.cancelRequested.connect(self.cancel_download)
+        self.setup = SetupService(self)
+        self.setup.event.connect(self.setup_event)
+        self.setup.failed.connect(self.setup_failed)
+        self.probe = SetupService(self)
+        self.probe.event.connect(self.settings.model_page.set_hardware)
+        self.probe.failed.connect(lambda message: self.settings.model_page.hardware.setText(
+            "Автоматическая проверка недоступна. Начните с модели «Быстрая» и процессора."))
         self.hotkey.connect(self.on_hotkey)
         self.hold_timer = QTimer(self)
         self.hold_timer.setSingleShot(True)
@@ -173,19 +210,33 @@ class Controller(QObject):
         self.meter_timer = QTimer(self)
         self.meter_timer.setInterval(33)
         self.meter_timer.timeout.connect(self.meter)
+        self.focus_timer = QTimer(self)
+        self.focus_timer.setInterval(200)
+        self.focus_timer.timeout.connect(self.check_recording_focus)
         self.operation_timer = QTimer(self)
         self.operation_timer.setSingleShot(True)
         self.operation_timer.timeout.connect(self._timeout)
+        self.pending_audio = None
+        self.memory_released = False
+        self.wake_unloaded = False
+        self.idle_since = time.monotonic()
+        self.idle_timer = QTimer(self)
+        self.idle_timer.setInterval(1000)
+        self.idle_timer.timeout.connect(self.check_idle)
+        self.idle_timer.start()
+        self.memory_monitor = MemoryMonitor(self)
+        self.memory_monitor.measured.connect(self.memory_measured)
+        self.memory_monitor.set_pids(self.memory_pids())
+        self.memory_monitor.start()
+        # Ensure a native window exists for Windows power broadcasts, even in tray mode.
+        self.settings.winId()
+        self.system_events = SystemEvents(app, self)
+        self.system_events.interrupted.connect(self.system_interrupted)
+        self.system_events.resumed.connect(self.system_resumed)
         self.hook = None
         if not no_hook:
-            self.hook = native.KeyboardHook(self.hotkey.emit, self.config["hold_ms"] / 1000)
-            self.hook.start()
-            self.hook.ready.wait(3)
-            if self.hook.error or not self.hook.ready.is_set():
-                self.settings.set_status("Не удалось подключить Alt. Перезапустите программу.", True)
-                LOG.error("Hotkey hook failed: %s", self.hook.error)
+            self.start_hook()
         self.tray = QSystemTrayIcon(app_icon(), self)
-        self.tray.setToolTip("Whisper Local · удерживайте левый Alt")
         menu = QMenu()
         menu.setStyleSheet("QMenu { padding:6px; } QMenu::item { padding:7px 24px; }")
         menu.addAction("Открыть Whisper Local", self.show_settings)
@@ -193,6 +244,7 @@ class Controller(QObject):
         self.pause_action = QAction("Приостановить диктовку", menu)
         self.pause_action.setCheckable(True)
         self.pause_action.toggled.connect(self.set_paused)
+        self.update_hotkey_hint()
         menu.addAction(self.pause_action)
         self.copy_action = menu.addAction("Скопировать последний текст", self.copy_last)
         self.copy_action.setEnabled(False)
@@ -205,20 +257,172 @@ class Controller(QObject):
         if not background:
             self.show_settings()
         self.start_worker()
+        self.probe.start("probe")
+
+    def start_hook(self, shortcut=None, mode=None):
+        try:
+            native.check_shortcut(parse_shortcut(shortcut or self.config["hotkey"], native.IS_MAC))
+        except (OSError, ValueError) as error:
+            self.settings.permission_note.setText(str(error))
+            self.settings.permission_note.show()
+            return False
+        if self.hook:
+            self.hook.stop()
+        self.hook_generation += 1
+        generation = self.hook_generation
+        self.hook = native.KeyboardHook(lambda event: self.hotkey.emit(event, generation),
+            self.config["hold_ms"] / 1000, shortcut or self.config["hotkey"],
+            mode or self.config["dictation_mode"])
+        self.hook.enabled = False
+        self.hook.start()
+        self.hook.ready.wait(3)
+        warning = ""
+        if self.hook.error or not self.hook.ready.is_set():
+            warning = str(self.hook.error or "Не удалось подключить горячую клавишу. Перезапустите приложение.")
+            LOG.error("Hotkey hook failed: %s", self.hook.error)
+        self.settings.permission_note.setText(warning)
+        self.settings.permission_note.setVisible(bool(warning))
+        self.hook.enabled = not warning and not (hasattr(self, "pause_action") and self.pause_action.isChecked())
+        return not warning
+
+    def update_hotkey_hint(self):
+        shortcut = parse_shortcut(self.config["hotkey"], native.IS_MAC).title(native.IS_MAC)
+        hint = f"нажмите {shortcut} для начала / остановки" if self.config["dictation_mode"] == "toggle" else f"удерживайте {shortcut}"
+        self.tray.setToolTip("Whisper Local · пауза" if self.pause_action.isChecked() else f"Whisper Local · {hint}")
+        self.settings.refresh_dictation_description()
+
+    def change_dictation(self, value, mode):
+        if (self.shutting_down or self.suspended or self.state in
+                ("recording", "waiting_model", "processing", "canceling", "pasting", "unloading")
+                or self.hold_timer.isActive() or (self.hook and self.hook.state.owned_primary)):
+            self.settings.dictation_error("Завершите диктовку и отпустите клавиши перед сменой настроек.")
+            return False
+        try:
+            shortcut = parse_shortcut(value, native.IS_MAC)
+            if mode not in ("hold", "toggle"):
+                raise ValueError("Выберите режим диктовки.")
+        except ValueError as error:
+            self.settings.dictation_error(str(error))
+            return False
+        previous = self.config["hotkey"], self.config["dictation_mode"]
+        if not self.no_hook and ((shortcut.value, mode) != previous or not self.hook or self.hook.error):
+            previous_generation = self.hook_generation
+            if not self.start_hook(shortcut.value, mode):
+                message = self.settings.permission_note.text()
+                if self.hook_generation != previous_generation:
+                    self.start_hook(*previous)
+                self.settings.dictation_error(message + " Прежние настройки сохранены.")
+                return False
+        self.config.update(hotkey=shortcut.value, dictation_mode=mode)
+        self.save_config()
+        self.settings.set_dictation_settings(shortcut.value, mode)
+        self.update_hotkey_hint()
+        return True
+
+    def request_permissions(self):
+        native.request_permissions()
+        self.start_hook()
+
+    def download_model(self, model_id, device):
+        if self.state in ("recording", "waiting_model", "processing", "canceling", "pasting", "loading", "unloading"):
+            self.settings.model_page.message.setText("Дождитесь завершения текущей операции и повторите.")
+            return
+        self.pending_device = device
+        try:
+            pending = save_pending(self.data_dir, model_id, self.settings.model_page.backend.currentData(), device)
+        except (OSError, ValueError, StopIteration):
+            self.setup_failed("Не удалось сохранить загрузку. Проверьте доступ к папке данных и повторите.")
+            return
+        self.settings.model_page.pending = pending
+        self.settings.model_page.refresh_download_button()
+        self.settings.model_page.user_selected = True
+        self.settings.model_page.set_busy(True, "Подготавливаем загрузку…")
+        self.setup.start("download", model_id, str(self.data_dir / "models"), self.settings.model_page.backend.currentData())
+
+    def cancel_download(self):
+        self.setup.stop()
+        self.settings.model_page.set_busy(False, "Загрузка остановлена. Скачанные данные сохранены. Нажмите «Продолжить загрузку».")
+
+    def setup_failed(self, message):
+        self.settings.model_page.set_busy(False, message)
+
+    def setup_event(self, event):
+        if event.get("type") == "progress":
+            self.settings.model_page.update_progress(event)
+        elif event.get("type") == "downloaded":
+            if self.activate_model(event["path"], self.pending_device, event["model_id"]):
+                try:
+                    clear_pending(self.data_dir)
+                except OSError:
+                    pass  # A stale intent is harmless: verified files need no network.
+                self.settings.model_page.pending = None
+                self.settings.model_page.refresh_download_button()
+
+    def import_model(self, device):
+        if self.state in ("recording", "waiting_model", "processing", "canceling", "pasting", "loading", "unloading"):
+            self.settings.model_page.message.setText("Дождитесь завершения текущей операции и повторите.")
+            return
+        if self.settings.model_page.backend.currentData() == "whispercpp":
+            path, _ = QFileDialog.getOpenFileName(self.settings, "Файл модели whisper.cpp GGML", "", "Модель GGML (*.bin)")
+        else:
+            path = QFileDialog.getExistingDirectory(self.settings, "Папка модели faster-whisper")
+        if path:
+            self.activate_model(path, device, "local")
+
+    def activate_model(self, path, device, model_id):
+        try:
+            path = validate_model(path)
+        except (ValueError, OSError) as error:
+            self.setup_failed(str(error))
+            return
+        # A download may finish while the user is dictating with the old model.
+        if self.state in ("recording", "waiting_model", "processing", "canceling", "pasting", "unloading"):
+            self.settings.model_page.set_busy(False, "Модель скачана. Завершите диктовку и нажмите кнопку настройки модели ещё раз.")
+            return
+        previous = {key: self.config[key] for key in ("model_path", "model_id", "device")}
+        previous_backend = self.active_backend
+        self.config.update(model_path=str(path), model_id=model_id, device=device)
+        self.active_backend = model_backend(path)
+        if not self.save_config():
+            self.config.update(previous)
+            self.active_backend = previous_backend
+            self.setup_failed("Модель скачана, но настройки не сохранены. Проверьте доступ к папке данных и повторите настройку.")
+            return False
+        self.settings.model_page.set_busy(False, "Проверяем модель. Первый запуск может занять несколько минут…")
+        self.restart_worker()
+        return True
+
+    def practice_recording(self):
+        if self.state == "recording":
+            self.settings.scratch.setFocus()
+            self.finish_recording()
+            return
+        if self.state in ("waiting_model", "processing", "canceling", "pasting", "unloading"):
+            return
+        self.settings.scratch.setFocus()
+        self.target = native.focus_target()
+        self.begin_recording(manual=True)
 
     def save_config(self):
+        if (self.dictionary.rules != self.config["dictionary_rules"]
+                or self.dictionary.enabled != self.config["dictionary_enabled"]):
+            self.dictionary = UserDictionary(self.config["dictionary_rules"], self.config["dictionary_enabled"])
+        self.cleanup = TextCleanup(self.config)
         self.overlay.set_wave_color(self.config.get("wave_color", "green"))
         self.overlay.set_style(self.config.get("bar_style", "flow"))
         self.sounds.prepare()
+        saved = False
         try:
             self.data_dir.mkdir(parents=True, exist_ok=True)
             temp = self.data_dir / "config.json.tmp"
             temp.write_text(json.dumps(self.config, ensure_ascii=False, indent=2), encoding="utf-8")
             temp.replace(self.data_dir / "config.json")
+            saved = True
             set_autostart(self.config["autostart"], self.data_dir)
         except Exception:
             LOG.exception("Cannot save settings")
             self.settings.set_status("Не удалось сохранить настройки. Проверьте доступ к папке программы.", True)
+        return saved
 
     def save_bar_position(self, anchor):
         self.config["bar_position"] = anchor
@@ -235,6 +439,60 @@ class Controller(QObject):
         self.settings.raise_()
         self.settings.activateWindow()
 
+    def memory_pids(self):
+        pid = int(self.worker.processId()) if self.worker else 0
+        return (os.getpid(), pid) if pid else (os.getpid(),)
+
+    def memory_measured(self, pids, values):
+        if not self.shutting_down and tuple(pids) == self.memory_pids():
+            self.settings.set_memory_usage(values)
+
+    def check_idle(self):
+        if self.shutting_down:
+            return
+        self.memory_monitor.set_pids(self.memory_pids())
+        available = (self.state == "idle" and self.ready and not self.suspended
+                     and not self.hold_timer.isActive() and not (self.hook and self.hook.state.held))
+        self.settings.free_memory.setEnabled(available)
+        self.settings.precision.setEnabled(self.active_backend != "whispercpp" and self.state in ("idle", "unloaded", "setup", "error"))
+        seconds = self.config.get("idle_unload_seconds", 300)
+        if available and seconds and time.monotonic() - self.idle_since >= seconds:
+            self.release_memory()
+
+    def release_memory(self):
+        if (self.shutting_down or self.suspended or self.state != "idle" or not self.ready
+                or self.hold_timer.isActive() or (self.hook and self.hook.state.held)):
+            return False
+        self.memory_released = True
+        self.state = "unloading"
+        self.settings.free_memory.setEnabled(False)
+        self.settings.set_status("Освобождаем память модели…")
+        self._stop_worker()
+        if not self.worker:
+            self.model_unloaded()
+        return True
+
+    def model_unloaded(self):
+        self.state, self.ready = "unloaded", False
+        self.settings.set_status("Память модели освобождена. Можно начинать диктовку.")
+        self.settings.engine_label.setText("Модель выгружена. Она загрузится при следующей диктовке.")
+        self.settings.model_page.message.setText("Модель выгружена из памяти. Начните диктовку — загрузка произойдёт автоматически.")
+        self.settings.free_memory.setEnabled(False)
+        self.memory_monitor.set_pids(self.memory_pids())
+
+    def change_precision(self, precision):
+        if (self.active_backend == "whispercpp" or precision not in ("auto", "int8") or self.state not in ("idle", "unloaded", "setup", "error")
+                or self.shutting_down or self.suspended or self.hold_timer.isActive()
+                or (self.hook and self.hook.state.held)):
+            self.settings.precision.blockSignals(True)
+            self.settings.precision.setCurrentIndex(max(0, self.settings.precision.findData(self.config["compute_type"])))
+            self.settings.precision.blockSignals(False)
+            return
+        self.config["compute_type"] = precision
+        self.save_config()
+        if self.state == "idle":
+            self.restart_worker()
+
     def tray_activated(self, reason):
         if reason in (QSystemTrayIcon.ActivationReason.Trigger, QSystemTrayIcon.ActivationReason.DoubleClick):
             self.show_settings()
@@ -244,24 +502,64 @@ class Controller(QObject):
             self.cancel()
         if self.hook:
             self.hook.enabled = not paused
-        self.tray.setToolTip("Whisper Local · пауза" if paused else "Whisper Local · удерживайте левый Alt")
+        self.update_hotkey_hint()
         self.settings.set_status("Диктовка приостановлена через меню в трее." if paused
-                                 else "Готов к диктовке · модель работает на видеокарте")
+                                 else f"Готов к диктовке · {self.device_description}" if self.ready else "Сначала подготовьте модель")
 
     def preview(self):
         if self.state == "recording":
             return
         self.overlay.preview()
 
+    def can_paste(self):
+        return (not self.shutting_down and not self.suspended
+                and self.system_events.check())
+
+    def system_interrupted(self):
+        self.suspended = True
+        self.wake_unloaded = self.memory_released and self.state in ("unloaded", "unloading")
+        active = self.state in ("recording", "waiting_model", "processing", "pasting")
+        self.cancel(restart_asr=False)
+        self.target = None
+        self.state, self.ready = "suspended", False
+        self._stop_worker()
+        if self.hook:
+            self.hook.state.held = False
+            self.hook.state.canceled = True
+        if active:
+            self.overlay.present("canceled", "Диктовка отменена при переходе в сон.", timeout=3)
+
+    def system_resumed(self):
+        if self.shutting_down or not self.suspended:
+            return
+        self.suspended = False
+        if self.hook:
+            self.start_hook()
+        if self.wake_unloaded:
+            self.state = "unloading"
+            if not self.worker:
+                self.model_unloaded()
+        else:
+            self.restart_worker()
+
     def start_worker(self):
+        if self.shutting_down or self.suspended or self.worker:
+            return
+        self.memory_released = False
         self.state, self.ready = "loading", False
-        self.settings.set_status("Подготавливаю Whisper на видеокарте…")
+        self.settings.model_page.practice.hide()
+        self.settings.set_status("Подготавливаем локальное распознавание…")
         self.stdout_buffer = b""
         self.stderr_tail = b""
-        for name in ("asr_python", "model_path", "cuda_path"):
-            if not Path(self.config[name]).exists():
-                self.fail("Не найден компонент Whisper. Проверьте пути в data/config.json.")
-                return
+        try:
+            validate_model(self.config.get("model_path", ""))
+        except (OSError, ValueError) as error:
+            self.state = "setup"
+            self.settings.set_status("Выберите модель для первого запуска")
+            self.settings.model_page.message.setText(str(error))
+            self.settings.show_page(1)
+            self.show_settings()
+            return
         worker = QProcess(self)
         self.worker = worker
         environment = QProcessEnvironment.systemEnvironment()
@@ -271,23 +569,29 @@ class Controller(QObject):
         environment.insert("HF_HUB_DISABLE_TELEMETRY", "1")
         worker.setProcessEnvironment(environment)
         worker.setWorkingDirectory(str(ROOT))
-        worker.readyReadStandardOutput.connect(self.read_worker)
-        worker.readyReadStandardError.connect(self.read_stderr)
-        worker.finished.connect(self.worker_finished)
-        worker.errorOccurred.connect(self.worker_error)
-        worker.setProgram(self.config["asr_python"])
-        worker.setArguments(["-u", "-B", str(ROOT / "asr_worker.py"), "--model",
-                             self.config["model_path"], "--cuda", self.config["cuda_path"]])
+        worker.readyReadStandardOutput.connect(lambda: self.read_worker(worker))
+        worker.readyReadStandardError.connect(lambda: self.read_stderr(worker))
+        worker.finished.connect(lambda code, status: self.worker_finished(code, status, worker))
+        worker.errorOccurred.connect(lambda error: self.worker_error(error, worker))
+        command = worker_command("asr", "--model", self.config["model_path"],
+                                 "--device", self.config.get("device", "auto"),
+                                 "--compute-type", self.config.get("compute_type", "auto"))
+        worker.setProgram(command[0])
+        worker.setArguments(command[1:])
+        worker.started.connect(lambda: self.memory_monitor.set_pids(self.memory_pids()))
         worker.start()
-        self.operation_timer.start(90000)
+        self.operation_timer.start(300000)
 
-    def read_stderr(self):
-        if self.worker:
+    def read_stderr(self, source=None):
+        if self.worker and (source is None or source is self.worker):
             data = bytes(self.worker.readAllStandardError())
             self.stderr_tail = (self.stderr_tail + data)[-5000:]
 
-    def read_worker(self):
-        if not self.worker:
+    def read_worker(self, source=None):
+        if not self.worker or (source is not None and source is not self.worker):
+            return
+        if self.worker_restart or self.state in ("canceling", "suspended", "unloading") or self.shutting_down:
+            self.worker.readAllStandardOutput()
             return
         self.stdout_buffer += bytes(self.worker.readAllStandardOutput())
         while b"\n" in self.stdout_buffer:
@@ -297,31 +601,53 @@ class Controller(QObject):
             except ValueError:
                 LOG.warning("Worker returned an invalid event")
                 continue
+            if source is not None and source is not self.worker:
+                break
             self.handle_worker_event(event)
 
     def handle_worker_event(self, event):
+        if (not isinstance(event, dict) or self.shutting_down or self.worker_restart
+                or not self.system_events.check() or self.suspended):
+            return
         kind = event.get("type")
         if kind == "ready":
+            if self.state not in ("loading", "recording", "waiting_model"):
+                return
             self.operation_timer.stop()
-            self.state, self.ready = "idle", True
-            LOG.info("CUDA worker ready in %s seconds", event.get("load_seconds"))
-            self.settings.set_status("Готов к диктовке · модель работает на видеокарте")
-            if self.overlay.isVisible() and self.overlay.mode == "loading":
+            waiting = self.state == "waiting_model"
+            self.ready = True
+            if self.state == "loading":
+                self.state = "idle"
+            self.idle_since = time.monotonic()
+            LOG.info("%s worker ready in %s seconds", event.get("device"), event.get("load_seconds"))
+            self.device_description = {"cuda": "видеокарта NVIDIA", "metal": "GPU · Metal"}.get(event.get("device"), "процессор")
+            self.active_backend = event.get("backend", "faster-whisper")
+            self.settings.set_engine(event.get("device"), self.active_backend, event.get("compute_type"))
+            self.settings.set_status(f"Готов к диктовке · {self.device_description}")
+            engine = "whisper.cpp" if self.active_backend == "whispercpp" else "Whisper"
+            self.settings.engine_label.setText(f"{engine} · {self.device_description} · {event.get('compute_type', 'auto')}\nМодель загружена в память.")
+            self.settings.model_page.set_ready(self.config["model_path"], self.device_description)
+            if event.get("fallback"):
+                gpu = "Metal" if self.active_backend == "whispercpp" else "NVIDIA"
+                self.settings.model_page.message.setText(f"Ускорение {gpu} недоступно. Модель готова и работает на процессоре.")
+            if waiting:
+                audio, self.pending_audio = self.pending_audio, None
+                self.submit_audio(audio)
+            elif self.state == "idle" and self.overlay.isVisible() and self.overlay.mode == "loading":
                 self.overlay.present("ready", timeout=2)
         elif kind == "fatal":
             LOG.error("ASR initialization: %s", event.get("error"))
-            self.fail("Whisper не запустился. Откройте настройки и перезапустите распознавание.")
+            self.fail("Модель не запустилась. Попробуйте модель «Быстрая» или повторите её загрузку.")
         elif kind in ("result", "error"):
+            if (self.state != "processing" or self.request_id is None
+                    or event.get("id") != self.request_id):
+                return
             self.operation_timer.stop()
-            if self.state == "canceling":
-                self.state = "idle"
-                return
-            if event.get("id") != self.request_id:
-                return
             self.request_id = None
             if kind == "error":
                 LOG.error("ASR operation: %s", event.get("error"))
                 self.state = "idle"
+                self.idle_since = time.monotonic()
                 self.overlay.present("error", "Не удалось распознать речь. Попробуйте ещё раз.", timeout=6)
                 self._escape(False)
                 return
@@ -329,9 +655,18 @@ class Controller(QObject):
             LOG.info("Transcribed: %.3fs, %d characters", event.get("seconds", 0), len(text))
             if not text:
                 self.state = "idle"
+                self.idle_since = time.monotonic()
                 self._escape(False)
                 self.overlay.present("empty", "Попробуйте говорить ближе к микрофону.", timeout=3)
                 return
+            text = self.cleanup.apply(text, self.dictionary.pattern)
+            if not text.strip():
+                self.state = "idle"
+                self.idle_since = time.monotonic()
+                self._escape(False)
+                self.overlay.present("empty", "После очистки текст пуст. Можно отключить удаление междометий.", timeout=4)
+                return
+            text = self.dictionary.apply(text)
             self.last_text = text
             self.copy_action.setEnabled(True)
             self.settings.copy.setEnabled(True)
@@ -339,41 +674,82 @@ class Controller(QObject):
             self.state = "pasting"
             self.paste_manager.paste(text, self.target)
 
-    def worker_error(self, error):
-        if not self.shutting_down:
+    def worker_error(self, error, source=None):
+        if source is not None and source is not self.worker:
+            return
+        if not self.shutting_down and not self.worker_restart and self.state not in ("error", "suspended", "unloading"):
             LOG.error("Worker process error: %s", error)
             self.fail("Не удалось запустить локальный Whisper. Откройте настройки.")
 
-    def worker_finished(self, code, status):
-        if not self.shutting_down and self.state != "error":
-            LOG.error("Worker exited: %s; %s", code, self.stderr_tail.decode("utf-8", "replace"))
+    def worker_finished(self, code, status, source=None):
+        if source is not None and source is not self.worker:
+            return
+        restart = self.worker_restart
+        self.worker_restart = False
+        worker, self.worker = self.worker, None
+        if worker:
+            worker.deleteLater()
+        if self.shutting_down or self.suspended:
+            return
+        if restart:
+            self.start_worker()
+        elif self.state == "unloading":
+            self.model_unloaded()
+        elif self.state != "error":
+            LOG.error("Worker exited: %s", code)
             self.fail("Процесс Whisper остановился. Перезапустите его в настройках.")
 
     def restart_worker(self):
-        self.cancel()
+        if self.shutting_down or self.suspended or self.state == "unloading":
+            return
+        self.cancel(restart_asr=False)
+        self.state, self.ready = "loading", False
+        self._stop_worker(restart=True)
+
+    def _stop_worker(self, restart=False):
+        """Kill native inference; reload only after process exit, without blocking Qt."""
         self.operation_timer.stop()
+        self.request_id = None
+        self.pending_audio = None
+        self.ready = False
+        self.worker_restart = restart
         if self.worker:
-            self.worker.finished.disconnect()
-            self.worker.errorOccurred.disconnect()
-            self.worker.kill()
-            self.worker.waitForFinished(2000)
-            self.worker.deleteLater()
-        self.start_worker()
+            if self.worker.state() == QProcess.ProcessState.NotRunning:
+                self.worker_finished(0, QProcess.ExitStatus.NormalExit, self.worker)
+            else:
+                self.worker.kill()
+        else:
+            self.worker_restart = False
+            if restart:
+                self.start_worker()
 
     def _escape(self, enabled):
         if self.hook:
             self.hook.escape_enabled = enabled
 
-    def on_hotkey(self, event):
+    def on_hotkey(self, event, generation=None):
+        if generation is not None and generation != self.hook_generation:
+            return
+        if self.shutting_down or self.suspended or not self.system_events.check():
+            return
         if event == "down":
-            # A second Alt press must not redirect a pending transcript to a new window.
-            if self.state not in ("recording", "processing", "canceling", "pasting"):
-                self.target = native.focus_target()
-            self.hold_timer.start()
+            if self.pause_action.isChecked():
+                return
+            if self.config["dictation_mode"] == "toggle" and self.state == "recording":
+                self.finish_recording()
+                return
+            # Never redirect an in-flight result to the window of a later press.
+            if self.state in ("recording", "waiting_model", "processing", "canceling", "pasting"):
+                return
+            self.target = native.focus_target()
+            if self.config["dictation_mode"] == "toggle":
+                self.begin_recording()
+            else:
+                self.hold_timer.start()
         elif event == "up":
             # A release can race the 180 ms Qt timer under load; never leave a recording running.
             self.hold_timer.stop()
-            if self.state == "recording":
+            if self.config["dictation_mode"] == "hold" and self.state == "recording":
                 self.finish_recording()
         elif event == "cancel":
             self.cancel()
@@ -381,18 +757,29 @@ class Controller(QObject):
             LOG.error("Hotkey callback failed")
             self.cancel()
 
-    def begin_recording(self):
-        if self.hook and (not self.hook.state.held or self.hook.state.canceled):
+    def begin_recording(self, manual=False):
+        if self.shutting_down or self.suspended or not self.system_events.check():
+            return
+        if (not manual and self.config["dictation_mode"] == "hold" and self.hook
+                and (not self.hook.state.held or self.hook.state.canceled)):
             return
         if self.pause_action.isChecked():
             return
-        if not self.ready:
-            if self.state == "error":
+        if self.state == "unloaded":
+            self.start_worker()
+        loading = self.state == "loading" and self.worker is not None and not self.worker_restart
+        if not self.ready and not loading:
+            if self.state == "setup":
+                self.settings.show_page(1)
+                self.show_settings()
+            elif self.state == "error":
                 self.overlay.present("error", "Whisper не готов. Откройте настройки.", timeout=5)
             else:
                 self.overlay.present("loading", timeout=5)
             return
-        if self.state in ("processing", "canceling", "pasting"):
+        if self.state != "idle" and not loading:
+            return
+        if self.recording_focus_changed():
             return
         self.overlay.demo = False
         try:
@@ -404,17 +791,33 @@ class Controller(QObject):
             return
         self.record_started = time.monotonic()
         self.state = "recording"
+        self.settings.record_button.setText("Завершить проверку")
         self._escape(True)
         self.overlay.present("recording")
         self.sounds.play("start")
         self.meter_timer.start()
+        self.focus_timer.start()
+
+    def recording_focus_changed(self):
+        if native.target_known(self.target) and not native.same_target(self.target):
+            self.cancel()
+            self.overlay.present("canceled", timeout=2, title="Поле изменилось")
+            self.settings.set_status("Диктовка отменена: исходное поле ввода потеряло фокус.")
+            return True
+        return False
+
+    def check_recording_focus(self):
+        if self.state == "recording" and self.system_events.check():
+            self.recording_focus_changed()
 
     def meter(self):
         if self.state != "recording":
             return
+        if not self.system_events.check():
+            return
         duration = self.recorder.samples / 16000
         self.overlay.sample(self.recorder.level, duration)
-        if self.recorder.stream and not self.recorder.stream.active:
+        if not self.recorder.healthy():
             self.cancel()
             self.overlay.present("error", "Микрофон отключился. Подключите его и повторите запись.", timeout=6)
             return
@@ -423,26 +826,52 @@ class Controller(QObject):
             self.finish_recording()
 
     def finish_recording(self):
+        if self.state != "recording" or not self.system_events.check():
+            return
+        if self.recording_focus_changed():
+            return
+        self.settings.record_button.setText("Начать проверку микрофона")
         self.meter_timer.stop()
-        audio = self.recorder.stop()
+        self.focus_timer.stop()
+        try:
+            if not self.recorder.healthy():
+                raise RuntimeError("Microphone stopped delivering audio")
+            audio = self.recorder.stop()
+        except Exception:
+            self.cancel()
+            self.overlay.present("error", "Микрофон отключился. Подключите его и повторите запись.", timeout=6)
+            return
         if self.recorder.overflow:
             LOG.warning("Microphone reported dropped frames")
         if audio.size < 4800:
-            self.state = "idle"
+            self.state = "idle" if self.ready else "loading"
+            self.idle_since = time.monotonic()
             self._escape(False)
             self.overlay.hide()
+            return
+        pcm = audio.astype("<f4", copy=False).tobytes()
+        if not self.ready:
+            self.pending_audio = pcm
+            self.state = "waiting_model"
+            self.overlay.present("loading", title="Подготавливаем модель…")
+            return
+        self.submit_audio(pcm)
+
+    def submit_audio(self, pcm):
+        if pcm is None:
+            self.fail("Запись недоступна. Начните диктовку заново.")
             return
         self.request_id = uuid.uuid4().hex
         self.state = "processing"
         self.overlay.present("processing")
         request = {"type": "transcribe", "id": self.request_id,
                    "language": self.config.get("language"),
-                   "audio": base64.b64encode(audio.astype("<f4", copy=False).tobytes()).decode("ascii")}
+                   "audio": base64.b64encode(pcm).decode("ascii")}
         if not self.worker or self.worker.state() != QProcess.ProcessState.Running:
             self.fail("Whisper остановился. Перезапустите его в настройках.")
             return
         self.worker.write((json.dumps(request) + "\n").encode("utf-8"))
-        self.operation_timer.start(120000)
+        self.operation_timer.start(600000)
 
     def finish_if_recording(self):
         if self.state == "recording":
@@ -451,18 +880,19 @@ class Controller(QObject):
     def _pasted(self, success, reason):
         if self.state != "pasting":
             return
-        self.state = "idle"
+        self.state = "idle" if self.ready else "unloaded"
+        self.idle_since = time.monotonic()
         self._escape(False)
         if success:
             self.sounds.play("insert")
             self.overlay.present("result", timeout=.6)
-            self.settings.set_status("Готов к следующей диктовке · CUDA")
+            self.settings.set_status(f"Готов к следующей диктовке · {self.device_description}")
         else:
             self.overlay.present("manual", self.last_text, timeout=12, title="Не удалось вставить · выберите поле")
             self.settings.set_status(reason)
 
     def retry_paste(self):
-        if self.state != "idle" or not self.last_text:
+        if self.state not in ("idle", "unloaded") or not self.last_text or not self.can_paste():
             return
         self.target = native.focus_target()
         self.state = "pasting"
@@ -474,30 +904,45 @@ class Controller(QObject):
             QApplication.clipboard().setText(self.last_text)
             self.overlay.present("copied", timeout=1.6)
 
-    def cancel(self):
+    def cancel(self, *, restart_asr=True):
+        self.settings.record_button.setText("Начать проверку микрофона")
         self.hold_timer.stop()
+        self.focus_timer.stop()
+        if self.hook and self.hook.state.held:
+            self.hook.state.canceled = True
         self.paste_manager.cancel()
-        was_active = self.state in ("recording", "processing", "pasting")
+        was_active = self.state in ("recording", "waiting_model", "processing", "pasting")
+        self.pending_audio = None
         if self.state == "recording":
             self.meter_timer.stop()
             self.recorder.cancel()
-            self.state = "idle"
+            self.state = "idle" if self.ready else "loading"
+        elif self.state == "waiting_model":
+            self.state = "loading"
         elif self.state == "processing":
             self.state = "canceling"
             self.request_id = None
+            self.operation_timer.stop()
+            self.ready = False
         elif self.state == "pasting":
-            self.state = "idle"
+            self.state = "idle" if self.ready else "unloaded"
+        if self.state == "idle":
+            self.idle_since = time.monotonic()
         self._escape(False)
         if was_active:
             self.overlay.present("canceled", timeout=.9)
         elif self.state == "loading":
             # Dismiss the loading capsule without aborting model preparation.
             self.overlay.hide()
+        if was_active and self.state == "canceling" and restart_asr:
+            self.settings.set_status("Диктовка отменена. Подготавливаем модель для следующей записи…")
+            self._stop_worker(restart=True)
 
     def fail(self, message):
-        self.cancel()
+        self.cancel(restart_asr=False)
         self.operation_timer.stop()
         self.state, self.ready = "error", False
+        self._stop_worker()
         self.settings.set_status(message, True)
         self.overlay.present("error", message, timeout=7)
 
@@ -509,29 +954,36 @@ class Controller(QObject):
         if self.shutting_down:
             return
         self.shutting_down = True
+        self.system_events.close()
+        self.setup.stop()
+        self.probe.stop()
         self.hold_timer.stop()
         self.meter_timer.stop()
+        self.focus_timer.stop()
         self.operation_timer.stop()
+        self.idle_timer.stop()
+        self.memory_monitor.stop()
         self.recorder.cancel()
         self.paste_manager.cancel()
         if self.hook:
             self.hook.stop()
-        if self.worker and self.worker.state() != QProcess.ProcessState.NotRunning:
-            self.worker.write(b'{"type":"quit"}\n')
-            self.worker.closeWriteChannel()
-            if not self.worker.waitForFinished(1200):
-                self.worker.kill()
-                self.worker.waitForFinished(2000)
+        worker = self.worker
+        self._stop_worker()
+        if worker and worker.state() != QProcess.ProcessState.NotRunning:
+            worker.waitForFinished(2000)
         self.tray.hide()
         LOG.info("Stopped")
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data-dir", type=Path, default=DEFAULT_INSTALL / "data")
+    parser.add_argument("--data-dir", type=Path, default=data_directory())
     parser.add_argument("--background", action="store_true")
     parser.add_argument("--quit", action="store_true")
     parser.add_argument("--preview", action="store_true")
+    parser.add_argument("--no-hook", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--smoke-test", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--smoke-screenshot", type=Path, help=argparse.SUPPRESS)
     args = parser.parse_args()
     args.data_dir.mkdir(parents=True, exist_ok=True)
     handler = RotatingFileHandler(args.data_dir / "app.log", maxBytes=300000, backupCount=2, encoding="utf-8")
@@ -542,7 +994,16 @@ def main():
     app.setOrganizationName("WhisperLocal")
     app.setWindowIcon(app_icon())
     app.setQuitOnLastWindowClosed(False)
-    server_name = "WhisperLocal-" + hashlib.sha256(str(Path.home()).encode()).hexdigest()[:16]
+    if args.smoke_test:
+        settings = SettingsWindow(load_config(args.data_dir))
+        settings.show_page(1)
+        settings.show()
+        app.processEvents()
+        if args.smoke_screenshot:
+            settings.grab().save(str(args.smoke_screenshot))
+        settings.hide()
+        return 0
+    server_name = APP_ID + "-" + hashlib.sha256(str(args.data_dir.resolve()).encode()).hexdigest()[:16]
     socket = QLocalSocket()
     socket.connectToServer(server_name)
     if socket.waitForConnected(500):
@@ -558,7 +1019,7 @@ def main():
     if not server.listen(server_name):
         LOG.error("Could not acquire single-instance server")
         return 1
-    controller = Controller(app, args.data_dir, args.background)
+    controller = Controller(app, args.data_dir, args.background, args.no_hook)
     clients = []
 
     def accept():

@@ -1,0 +1,229 @@
+{
+  "platform": "Windows-11-10.0.26200-SP0",
+  "python": "3.12.10",
+  "ctranslate2": "4.8.2",
+  "cpu": "AMD64 Family 25 Model 33 Stepping 2, AuthenticAMD",
+  "model_sha256": "d01c3014881c9c6f3133c182f3d2887eb6ca1c789a7538c5c007196857a0a6a9",
+  "corpus_sha256": "8a3928b62eae8ab4d81025c84bb5110a33e40a2700210aef21a843cad2340800",
+  "audio_seconds": 56.975,
+  "fixtures": 9,
+  "repeats": 3,
+  "modes": [
+    {
+      "requested_compute": "float32",
+      "actual_compute": "float32",
+      "device": "cpu",
+      "cold_load_seconds": 1.422,
+      "loading_peak": {
+        "rss_bytes": 478842880,
+        "dedicated_bytes": 0,
+        "shared_bytes": 0
+      },
+      "idle": {
+        "rss_bytes": 411844608.0,
+        "dedicated_bytes": 0.0,
+        "shared_bytes": 0.0
+      },
+      "inference_peak": {
+        "rss_bytes": 512708608,
+        "dedicated_bytes": 0,
+        "shared_bytes": 0
+      },
+      "exit_seconds": 0.016,
+      "after_exit": {
+        "rss_bytes": 0,
+        "dedicated_bytes": 0,
+        "shared_bytes": 0
+      },
+      "round_seconds": [
+        6.421,
+        6.531,
+        6.469
+      ],
+      "median_seconds": 6.469,
+      "real_time_factor": 0.1135,
+      "quality": [
+        {
+          "fixture": 0,
+          "language": "ru",
+          "word_errors": 0,
+          "words": 11,
+          "char_errors": 0,
+          "chars": 64
+        },
+        {
+          "fixture": 1,
+          "language": "ru",
+          "word_errors": 0,
+          "words": 9,
+          "char_errors": 0,
+          "chars": 64
+        },
+        {
+          "fixture": 2,
+          "language": "ru",
+          "word_errors": 0,
+          "words": 7,
+          "char_errors": 0,
+          "chars": 57
+        },
+        {
+          "fixture": 3,
+          "language": "ru",
+          "word_errors": 1,
+          "words": 9,
+          "char_errors": 1,
+          "chars": 65
+        },
+        {
+          "fixture": 4,
+          "language": "ru",
+          "word_errors": 1,
+          "words": 10,
+          "char_errors": 1,
+          "chars": 67
+        },
+        {
+          "fixture": 5,
+          "language": "ru",
+          "word_errors": 4,
+          "words": 10,
+          "char_errors": 6,
+          "chars": 65
+        },
+        {
+          "fixture": 6,
+          "language": "ru",
+          "word_errors": 0,
+          "words": 11,
+          "char_errors": 0,
+          "chars": 63
+        },
+        {
+          "fixture": 7,
+          "language": "ru",
+          "word_errors": 0,
+          "words": 11,
+          "char_errors": 0,
+          "chars": 65
+        },
+        {
+          "fixture": 8,
+          "language": "en",
+          "word_errors": 0,
+          "words": 22,
+          "char_errors": 0,
+          "chars": 104
+        }
+      ]
+    },
+    {
+      "requested_compute": "int8",
+      "actual_compute": "int8_float32",
+      "device": "cpu",
+      "cold_load_seconds": 1.25,
+      "loading_peak": {
+        "rss_bytes": 259235840,
+        "dedicated_bytes": 0,
+        "shared_bytes": 0
+      },
+      "idle": {
+        "rss_bytes": 204062720.0,
+        "dedicated_bytes": 0.0,
+        "shared_bytes": 0.0
+      },
+      "inference_peak": {
+        "rss_bytes": 304640000,
+        "dedicated_bytes": 0,
+        "shared_bytes": 0
+      },
+      "exit_seconds": 0.016,
+      "after_exit": {
+        "rss_bytes": 0,
+        "dedicated_bytes": 0,
+        "shared_bytes": 0
+      },
+      "round_seconds": [
+        4.562,
+        4.641,
+        4.531
+      ],
+      "median_seconds": 4.562,
+      "real_time_factor": 0.0801,
+      "quality": [
+        {
+          "fixture": 0,
+          "language": "ru",
+          "word_errors": 0,
+          "words": 11,
+          "char_errors": 0,
+          "chars": 64
+        },
+        {
+          "fixture": 1,
+          "language": "ru",
+          "word_errors": 0,
+          "words": 9,
+          "char_errors": 0,
+          "chars": 64
+        },
+        {
+          "fixture": 2,
+          "language": "ru",
+          "word_errors": 1,
+          "words": 7,
+          "char_errors": 1,
+          "chars": 57
+        },
+        {
+          "fixture": 3,
+          "language": "ru",
+          "word_errors": 1,
+          "words": 9,
+          "char_errors": 1,
+          "chars": 65
+        },
+        {
+          "fixture": 4,
+          "language": "ru",
+          "word_errors": 1,
+          "words": 10,
+          "char_errors": 1,
+          "chars": 67
+        },
+        {
+          "fixture": 5,
+          "language": "ru",
+          "word_errors": 4,
+          "words": 10,
+          "char_errors": 6,
+          "chars": 65
+        },
+        {
+          "fixture": 6,
+          "language": "ru",
+          "word_errors": 0,
+          "words": 11,
+          "char_errors": 0,
+          "chars": 63
+        },
+        {
+          "fixture": 7,
+          "language": "ru",
+          "word_errors": 0,
+          "words": 11,
+          "char_errors": 0,
+          "chars": 65
+        },
+        {
+          "fixture": 8,
+          "language": "en",
+          "word_errors": 0,
+          "words": 22,
+          "char_errors": 0,
+          "chars": 104
+        }
+      ]
+    }
+  ]
+}

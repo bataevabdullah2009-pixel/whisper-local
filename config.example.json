@@ -1,7 +1,9 @@
 {
-  "asr_python": "C:\\Голосовой асисстент\\Prototype 05\\.venv-asr\\Scripts\\python.exe",
-  "model_path": "C:\\Голосовой асисстент\\Prototype 05\\.local\\asr\\packages\\faster-whisper-large-v3-turbo-cuda-float16-v1\\model",
-  "cuda_path": "C:\\Голосовой асисстент\\Prototype 05\\.venv-tts\\Lib\\site-packages\\torch\\lib",
+  "model_path": "",
+  "model_id": "small",
+  "device": "auto",
+  "compute_type": "auto",
+  "idle_unload_seconds": 300,
   "language": "ru",
   "wave_color": "green",
   "bar_style": "flow",
@@ -12,7 +14,14 @@
   "microphone": null,
   "microphone_name": null,
   "hold_ms": 180,
+  "hotkey": "default",
+  "dictation_mode": "hold",
+  "dictionary_enabled": true,
+  "dictionary_rules": [],
+  "cleanup_enabled": false,
+  "cleanup_spacing": true,
+  "cleanup_fillers": false,
   "max_recording_seconds": 180,
   "result_seconds": 2.8,
-  "autostart": true
+  "autostart": false
 }

@@ -8,8 +8,12 @@ from PySide6.QtCore import Qt, QTimer, QRectF, QPointF, QPropertyAnimation, QEas
 from PySide6.QtGui import (QColor, QPainter, QPen, QFont, QFontDatabase, QIcon, QPixmap,
                           QTextLayout, QTextOption, QCursor, QPalette, QPolygonF)
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QComboBox, QCheckBox, QPlainTextEdit, QFrame, QApplication, QStackedWidget, QSlider)
-import windows_native as native
+    QComboBox, QCheckBox, QPlainTextEdit, QFrame, QApplication, QStackedWidget, QSlider, QScrollArea)
+import platform_native as native
+from setup_ui import ModelPage
+from dictation_hotkey import MODIFIERS, parse_shortcut
+from dictionary_ui import DictionaryPage
+from cleanup_ui import CleanupPage
 
 GREEN, RED, INK, WHITE, MUTED = [QColor(x) for x in ('#1ED760','#FF453A','#171717','#F5F5F5','#A8A8A8')]
 
@@ -19,7 +23,7 @@ def prepare_fonts():
         if (directory/name).is_file(): QFontDatabase.addApplicationFont(str(directory/name))
 
 def font(size,weight=QFont.Weight.Normal):
-    result=QFont('Segoe UI',size); result.setPixelSize(size); result.setWeight(weight)
+    result=QFont(QApplication.font() if native.IS_MAC else QFont('Segoe UI')); result.setPixelSize(size); result.setWeight(weight)
     return result
 
 def app_icon(size=64):
@@ -85,7 +89,11 @@ class Overlay(QWidget):
         self.title=title or titles.get(mode,mode); self.setAccessibleName(self.title); self.setAccessibleDescription(message)
         self.setFixedSize(428,230) if message else self.setFixedSize(300,96)
         if mode=='recording': self.levels=deque([0.]*28,maxlen=28); self.display_levels=[0.]*28
-        self._position(); self.show(); native.no_activate(int(self.winId())); self.timer.start()
+        self._position(); self.show()
+        # Offscreen/minimal Qt handles are not HWNDs or NSViews.
+        if QApplication.platformName() in ('windows','cocoa'):
+            native.no_activate(int(self.winId()))
+        self.timer.start()
         if not was_visible:
             self.animation.stop(); self.setWindowOpacity(0); self.animation.setStartValue(0.); self.animation.setEndValue(1.); self.animation.start()
         if timeout: self.hide_timer.start(int(timeout*1000))
@@ -219,6 +227,7 @@ class Overlay(QWidget):
         self.setCursor(Qt.CursorShape.OpenHandCursor)
     def leaveEvent(self,event): self.hover=''; self.update()
     def nativeEvent(self,event_type,message):
+        if native.IS_MAC: return super().nativeEvent(event_type,message)
         from ctypes import wintypes
         msg=wintypes.MSG.from_address(int(message))
         if msg.message==0x21: return True,3
@@ -254,6 +263,10 @@ QSlider::sub-page:horizontal { background:#313131; border-radius:2px; }
 QSlider::handle:horizontal { background:#202020; width:16px; height:16px; margin:-6px 0; border-radius:8px; }
 QPlainTextEdit { background:#FAFAF8; border:1px solid #DDDDD8; border-radius:9px; padding:14px; font-size:15px; selection-background-color:#D5EBDD; selection-color:#171717; placeholder-text-color:#686868; }
 QPlainTextEdit:focus { border:2px solid #71716C; padding:13px; }
+QLineEdit { background:#FAFAF8; border:1px solid #DDDDD8; border-radius:7px; padding:8px; selection-background-color:#D5EBDD; selection-color:#171717; }
+QLineEdit:focus { border:2px solid #71716C; padding:7px; }
+QTableWidget { background:#FAFAF8; border:1px solid #DDDDD8; border-radius:7px; gridline-color:#EAEAE7; selection-background-color:#D5EBDD; selection-color:#171717; }
+QHeaderView::section { background:#F4F3F0; color:#686868; border:none; border-bottom:1px solid #DDDDD8; padding:7px; }
 QToolTip { background:#252525; color:white; border:none; padding:6px; }
 '''
 
@@ -271,10 +284,14 @@ def label(text,kind=None):
 class SettingsWindow(QWidget):
     changed=Signal(); previewRequested=Signal(); retryRequested=Signal(); copyRequested=Signal()
     previewSoundRequested=Signal(str); resetPositionRequested=Signal()
-    PAGE_NAMES=('Основные','Панель','Звуки','Система','Проверка диктовки')
+    recordRequested=Signal(); permissionsRequested=Signal()
+    freeMemoryRequested=Signal(); precisionRequested=Signal(str)
+    dictationRequested=Signal(str,str)
+    PAGE_NAMES=('Основные','Модель','Панель','Звуки','Система','Проверка диктовки','Память','Словарь','Очистка текста')
     def __init__(self,config):
         super().__init__(); self.config=config
-        self.setWindowTitle('Whisper Local'); self.setWindowIcon(app_icon()); self.resize(860,620); self.setMinimumSize(780,590); self.setStyleSheet(STYLE)
+        self.setWindowTitle('Whisper Local'); self.setWindowIcon(app_icon()); self.resize(900,700); self.setMinimumSize(860,680)
+        self.setStyleSheet(STYLE.replace("font-family:'Segoe UI';", "" if native.IS_MAC else "font-family:'Segoe UI';"))
         root=QHBoxLayout(self); root.setContentsMargins(0,0,0,0); root.setSpacing(0)
         sidebar=QWidget(); sidebar.setObjectName('sidebar'); sidebar.setFixedWidth(200)
         rail=QVBoxLayout(sidebar); rail.setContentsMargins(18,27,18,24); rail.setSpacing(5)
@@ -290,8 +307,35 @@ class SettingsWindow(QWidget):
         self.status=label('Подготавливаю распознавание…','status'); main.addWidget(self.status)
         self.pages=QStackedWidget(); main.addWidget(self.pages,1)
         general=QWidget(); form=QVBoxLayout(general); form.setContentsMargins(0,6,0,0); form.setSpacing(0)
-        key=label('Alt','key'); key.setAlignment(Qt.AlignmentFlag.AlignCenter); key.setFixedSize(61,38)
-        self.add_row(form,'Горячая клавиша','Удерживайте левый Alt, чтобы говорить.\nОтпустите, чтобы вставить текст.',key)
+        self.hotkey_choice=ChoiceBox(); self.hotkey_choice.setAccessibleName('Горячая клавиша')
+        self.hotkey_choice.addItem(f'По умолчанию · {native.HOTKEY_NAME}','default')
+        self.hotkey_choice.addItem('Другое сочетание','custom')
+        self.hotkey_modifiers=ChoiceBox(); self.hotkey_modifiers.setAccessibleName('Модификаторы горячей клавиши')
+        names={'ctrl':'Ctrl','alt':'Option' if native.IS_MAC else 'Alt','shift':'Shift','cmd':'⌘'}
+        choices=((),('ctrl',),('alt',),('shift',),('ctrl','shift'),('alt','shift'),('ctrl','alt'),('ctrl','alt','shift'))
+        if native.IS_MAC:
+            choices+= (('cmd',),('cmd','shift'),('alt','cmd'),('ctrl','cmd'),('ctrl','shift','cmd'),('alt','shift','cmd'),('ctrl','alt','cmd'),('ctrl','alt','shift','cmd'))
+        for modifiers in choices:
+            self.hotkey_modifiers.addItem(' + '.join(names[m] for m in modifiers) or 'Без модификаторов','+'.join(m for m in MODIFIERS if m in modifiers))
+        self.hotkey_key=ChoiceBox(); self.hotkey_key.setAccessibleName('Основная клавиша сочетания')
+        for code in ('space',*[f'f{n}' for n in range(1,20) if n!=12 or native.IS_MAC],*'abcdefghijklmnopqrstuvwxyz0123456789'):
+            self.hotkey_key.addItem('Пробел' if code=='space' else code.upper(),code)
+        self.hotkey_custom=QWidget(); custom_layout=QHBoxLayout(self.hotkey_custom); custom_layout.setContentsMargins(0,0,0,0); custom_layout.setSpacing(6)
+        custom_layout.addWidget(self.hotkey_modifiers,1); custom_layout.addWidget(self.hotkey_key)
+        key=QWidget(); key.setFixedWidth(270); key_layout=QVBoxLayout(key); key_layout.setContentsMargins(0,0,0,0); key_layout.setSpacing(8)
+        key_layout.addWidget(self.hotkey_choice); key_layout.addWidget(self.hotkey_custom)
+        self.hotkey_description=self.add_row(form,'Горячая клавиша','Выберите привычную клавишу\nили своё сочетание.',key)
+        self.dictation_mode=ChoiceBox(); self.dictation_mode.setAccessibleName('Режим диктовки'); self.dictation_mode.setFixedWidth(270)
+        self.dictation_mode.addItem('Удерживать','hold'); self.dictation_mode.addItem('Нажать для начала / остановки','toggle')
+        self.mode_description=self.add_row(form,'Режим диктовки','',self.dictation_mode,rule=False)
+        self.hotkey_note=label('','detail'); form.addWidget(self.hotkey_note)
+        self.apply_dictation=QPushButton('Применить'); self.apply_dictation.setObjectName('primary'); self.apply_dictation.clicked.connect(self._apply_dictation)
+        form.addWidget(self.apply_dictation,0,Qt.AlignmentFlag.AlignRight)
+        self.set_dictation_settings(config['hotkey'] if 'hotkey' in config else 'default',config.get('dictation_mode','hold'))
+        self.hotkey_choice.currentIndexChanged.connect(self._dictation_edited)
+        self.hotkey_modifiers.currentIndexChanged.connect(self._dictation_edited)
+        self.hotkey_key.currentIndexChanged.connect(self._dictation_edited)
+        self.dictation_mode.currentIndexChanged.connect(self._dictation_edited)
         self.microphone=ChoiceBox(); self.microphone.setAccessibleName('Микрофон'); self.microphone.setFixedWidth(250)
         self.microphone.setMinimumContentsLength(17); self.microphone.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         mic=QWidget(); micbox=QVBoxLayout(mic); micbox.setContentsMargins(0,0,0,0); micbox.setSpacing(5); micbox.addWidget(self.microphone)
@@ -302,6 +346,8 @@ class SettingsWindow(QWidget):
         for text,code in (('Русский','ru'),('Автоматически',None),('English','en')): self.language.addItem(text,code)
         self.language.setCurrentIndex(max(0,self.language.findData(config.get('language','ru')))); self.add_row(form,'Язык диктовки','На каком языке вы говорите.',self.language)
         form.addStretch(); self.pages.addWidget(general)
+        self.model_page=ModelPage(config); self.pages.addWidget(self.model_page)
+        self.model_page.practiceRequested.connect(lambda:self.show_page(5))
         panel=QWidget(); panel_layout=QVBoxLayout(panel); panel_layout.setContentsMargins(0,6,0,0); panel_layout.setSpacing(0)
         self.panel_style=ChoiceBox(); self.panel_style.setAccessibleName('Вид панели'); self.panel_style.setFixedWidth(225)
         self.panel_style.addItem('Обычная','flow'); self.panel_style.addItem('Мини','mini')
@@ -341,30 +387,114 @@ class SettingsWindow(QWidget):
         sound_buttons.addWidget(play_start); sound_buttons.addWidget(play_insert); sound_layout.addLayout(sound_buttons)
         self.pages.addWidget(sound)
         system=QWidget(); system_layout=QVBoxLayout(system); system_layout.setContentsMargins(0,8,0,0); system_layout.setSpacing(16)
-        self.autostart=QCheckBox('Запускать при входе в Windows'); self.autostart.setChecked(config.get('autostart',True)); system_layout.addWidget(self.autostart)
+        self.autostart=QCheckBox(f'Запускать при входе в {native.SYSTEM_NAME}'); self.autostart.setChecked(config.get('autostart',False)); system_layout.addWidget(self.autostart)
         system_layout.addWidget(label('После входа приложение работает в трее. Закрытие окна настроек не останавливает диктовку.','description')); system_layout.addSpacing(18)
-        system_layout.addWidget(label('Локальное распознавание','section')); system_layout.addWidget(label('Whisper large-v3-turbo · NVIDIA CUDA\nМодель остаётся в видеопамяти, пока приложение открыто.','description')); system_layout.addSpacing(18)
+        system_layout.addWidget(label('Локальное распознавание','section'))
+        self.engine_label=label('Модель ещё не подготовлена. Откройте раздел «Модель».','description'); system_layout.addWidget(self.engine_label); system_layout.addSpacing(18)
         system_layout.addWidget(label('Ваши записи','section')); system_layout.addWidget(label('Микрофон включается только во время диктовки. Аудио обрабатывается на компьютере и не сохраняется. Последний текст доступен до выхода из приложения.','description')); system_layout.addStretch(); self.pages.addWidget(system)
         test=QWidget(); testing=QVBoxLayout(test); testing.setContentsMargins(0,8,0,0); testing.setSpacing(16)
-        testing.addWidget(label('Нажмите в поле, удерживайте Alt и скажите пару слов. Готовый текст появится после отпускания клавиши.','description'))
+        self.practice_note=label('','description'); testing.addWidget(self.practice_note)
         self.scratch=QPlainTextEdit(); self.scratch.setAccessibleName('Поле для проверки диктовки'); self.scratch.setPlaceholderText('Здесь появятся ваши слова…')
         palette=self.scratch.palette(); palette.setColor(QPalette.ColorRole.PlaceholderText,QColor('#686868')); self.scratch.setPalette(palette)
         self.scratch.setMinimumHeight(200); testing.addWidget(self.scratch,1)
-        self.latest_label=label('Esc отменяет запись. Alt+Tab и другие сочетания работают как обычно.','detail'); testing.addWidget(self.latest_label)
+        self.record_button=QPushButton('Начать проверку микрофона'); self.record_button.setObjectName('primary'); self.record_button.clicked.connect(self.recordRequested); testing.addWidget(self.record_button)
+        self.latest_label=label('Esc отменяет запись. Обычные сочетания клавиш продолжают работать.','detail'); testing.addWidget(self.latest_label)
         self.copy=QPushButton('Скопировать последний текст'); self.copy.setEnabled(False); self.copy.clicked.connect(self.copyRequested); testing.addWidget(self.copy,0,Qt.AlignmentFlag.AlignRight); self.pages.addWidget(test)
+        memory=QWidget(); memory_layout=QVBoxLayout(memory); memory_layout.setContentsMargins(0,8,0,0); memory_layout.setSpacing(0)
+        self.ram_usage=label('Измеряем…','section')
+        self.add_row(memory_layout,'Оперативная память','Приложение и его процессы.\nОбщие страницы могут учитываться дважды.',self.ram_usage)
+        self.vram_usage=label('Измеряем…','section'); self.vram_usage.setMaximumWidth(270)
+        gpu_note='Отдельный расход памяти Metal пока\nнедоступен для измерения.' if native.IS_MAC else 'Отдельная память GPU и общая память\nиз RAM по счётчикам Windows.'
+        self.add_row(memory_layout,'Видеопамять',gpu_note,self.vram_usage)
+        self.idle_unload=ChoiceBox(); self.idle_unload.setAccessibleName('Выгрузка модели после простоя'); self.idle_unload.setFixedWidth(225)
+        for title,seconds in (('Через 1 минуту',60),('Через 5 минут',300),('Через 10 минут',600),('Через 30 минут',1800),('Не выгружать',0)):
+            self.idle_unload.addItem(title,seconds)
+        self.idle_unload.setCurrentIndex(max(0,self.idle_unload.findData(config.get('idle_unload_seconds',300))))
+        self.add_row(memory_layout,'После простоя','Модель загрузится при новой диктовке.\nЗапись начнётся сразу; результат может задержаться.',self.idle_unload)
+        self.precision=ChoiceBox(); self.precision.setAccessibleName('Точность вычислений'); self.precision.setFixedWidth(225)
+        self.precision.addItem('Автоматически','auto'); self.precision.addItem('INT8 · меньше памяти','int8')
+        self.precision.setCurrentIndex(max(0,self.precision.findData(config.get('compute_type','auto'))))
+        self.precision_note=self.add_row(memory_layout,'Режим вычислений','INT8 может менять скорость и точность.\nСмена режима перезагрузит активную модель.',self.precision,rule=False)
+        self.memory_device='cpu'
+        memory_layout.addStretch()
+        self.free_memory=QPushButton('Освободить память'); self.free_memory.setObjectName('primary'); self.free_memory.setEnabled(False)
+        self.free_memory.clicked.connect(self.freeMemoryRequested); memory_layout.addWidget(self.free_memory,0,Qt.AlignmentFlag.AlignRight)
+        self.pages.addWidget(memory)
+        self.dictionary_page=DictionaryPage(config)
+        self.dictionary_scroll=QScrollArea(); self.dictionary_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.dictionary_scroll.setWidgetResizable(True); self.dictionary_scroll.setWidget(self.dictionary_page)
+        self.pages.addWidget(self.dictionary_scroll)
+        self.dictionary_page.changed.connect(self.changed.emit)
+        self.cleanup_page=CleanupPage(config)
+        self.cleanup_scroll=QScrollArea(); self.cleanup_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.cleanup_scroll.setWidgetResizable(True); self.cleanup_scroll.setWidget(self.cleanup_page)
+        self.pages.addWidget(self.cleanup_scroll)
+        self.cleanup_page.changed.connect(self.changed.emit)
+        self.dictionary_page.changed.connect(self.cleanup_page.preview)
         self.retry=QPushButton('Перезапустить распознавание'); self.retry.clicked.connect(self.retryRequested); self.retry.hide(); main.addWidget(self.retry)
-        main.addWidget(label('Изменения сохраняются автоматически.','detail')); root.addWidget(content,1)
+        self.permission_note=label('','description'); self.permission_note.hide(); main.addWidget(self.permission_note)
+        if native.IS_MAC:
+            permissions=QPushButton('Разрешить горячую клавишу в macOS'); permissions.clicked.connect(self.permissionsRequested); main.addWidget(permissions)
+        main.addWidget(label('Клавиша и режим сохраняются по кнопке «Применить».\nОстальные настройки сохраняются автоматически.','detail')); root.addWidget(content,1)
         self.refresh_microphones(); self.show_page(0)
-        for combo in (self.microphone,self.language,self.color,self.panel_style,self.sound_style): combo.currentIndexChanged.connect(self._save)
+        for combo in (self.microphone,self.language,self.color,self.panel_style,self.sound_style,self.idle_unload): combo.currentIndexChanged.connect(self._save)
+        self.precision.currentIndexChanged.connect(lambda:self.precisionRequested.emit(self.precision.currentData()))
         self.autostart.toggled.connect(self._save)
         self.sound_enabled.toggled.connect(self._save)
         self.sound_save_timer=QTimer(self); self.sound_save_timer.setSingleShot(True)
         self.sound_save_timer.timeout.connect(self._save)
         self.sound_volume.valueChanged.connect(self._volume_changed)
         self.sound_volume.sliderReleased.connect(self._save)
+        self.refresh_dictation_description()
+    def set_dictation_settings(self,shortcut_value,mode):
+        shortcut=parse_shortcut(shortcut_value,native.IS_MAC)
+        controls=(self.hotkey_choice,self.hotkey_modifiers,self.hotkey_key,self.dictation_mode)
+        for control in controls: control.blockSignals(True)
+        self.hotkey_choice.setCurrentIndex(0 if shortcut.default else 1)
+        modifiers='+'.join(m for m in MODIFIERS if m in shortcut.modifiers) if not shortcut.default else 'ctrl+shift'
+        self.hotkey_modifiers.setCurrentIndex(max(0,self.hotkey_modifiers.findData(modifiers)))
+        self.hotkey_key.setCurrentIndex(max(0,self.hotkey_key.findData('space' if shortcut.default else shortcut.key)))
+        self.dictation_mode.setCurrentIndex(max(0,self.dictation_mode.findData(mode)))
+        for control in controls: control.blockSignals(False)
+        self.hotkey_custom.setVisible(not shortcut.default)
+        self.hotkey_note.setText('Другие приложения могут использовать то же сочетание. Проверьте его в нужном поле.')
+        self.hotkey_note.setStyleSheet('')
+    def _dictation_edited(self):
+        self.hotkey_custom.setVisible(self.hotkey_choice.currentData()=='custom')
+        self.mode_description.setText('Нажмите, чтобы начать запись.\nНажмите ещё раз, чтобы вставить текст.' if self.dictation_mode.currentData()=='toggle' else 'Удерживайте, пока говорите.\nОтпустите, чтобы вставить текст.')
+        self.hotkey_note.setText('Нажмите «Применить», чтобы сохранить клавишу и режим.')
+        self.hotkey_note.setStyleSheet('')
+    def _apply_dictation(self):
+        value='default' if self.hotkey_choice.currentData()=='default' else '+'.join(filter(None,(self.hotkey_modifiers.currentData(),self.hotkey_key.currentData())))
+        self.dictationRequested.emit(value,self.dictation_mode.currentData())
+    def dictation_error(self,message):
+        self.hotkey_note.setText(message); self.hotkey_note.setStyleSheet('color:#A44332;')
+    def refresh_dictation_description(self):
+        shortcut=parse_shortcut(self.config.get('hotkey','default'),native.IS_MAC).title(native.IS_MAC)
+        toggle=self.config.get('dictation_mode','hold')=='toggle'
+        self.mode_description.setText('Нажмите, чтобы начать запись.\nНажмите ещё раз, чтобы вставить текст.' if toggle else 'Удерживайте, пока говорите.\nОтпустите, чтобы вставить текст.')
+        self.practice_note.setText(f'Нажмите в поле и используйте {shortcut}: '+('нажмите для начала и остановки.' if toggle else 'удерживайте, пока говорите, затем отпустите.')+' Или запустите запись кнопкой ниже.')
     def _volume_changed(self,value):
         self.volume_label.setText(str(value)+'%')
         self.sound_save_timer.start(180)
+    def set_memory_usage(self,values):
+        def amount(value):
+            return 'Нет данных' if value is None else f'{value / 1024**2:.0f} МиБ'
+        self.ram_usage.setText(amount(values.get('rss_bytes')))
+        if native.IS_MAC:
+            self.vram_usage.setText('Metal · память GPU\nОтдельный расход недоступен' if self.memory_device=='metal' else 'CPU · отдельная VRAM не используется')
+        else:
+            dedicated,shared=values.get('dedicated_bytes'),values.get('shared_bytes')
+            self.vram_usage.setText('Нет данных' if dedicated is None else f'{amount(dedicated)} отдельно\n{amount(shared)} из RAM')
+    def set_engine(self,device,backend,compute):
+        self.memory_device=device
+        self.precision.blockSignals(True)
+        cpp=backend=='whispercpp'
+        self.precision.setItemText(0,f'По файлу · {compute}' if cpp else 'Автоматически')
+        self.precision.setCurrentIndex(0 if cpp else max(0,self.precision.findData(self.config.get('compute_type','auto'))))
+        self.precision.blockSignals(False)
+        self.precision.setEnabled(not cpp)
+        self.precision_note.setText('Точность whisper.cpp задаётся файлом модели.\nПоддерживаются FP16 и импорт GGML Q8_0.' if cpp else 'INT8 может менять скорость и точность.\nСмена режима перезагрузит активную модель.')
     def _describe_sound(self):
         descriptions={'flow':'Сигналы из официальной веб-демонстрации Wispr Flow.',
                       'console':'Мягкие объёмные тона в духе игровых консолей.',
@@ -372,18 +502,19 @@ class SettingsWindow(QWidget):
         self.sound_description.setText(descriptions[self.sound_style.currentData()])
     def add_row(self,parent,title,description,control,rule=True):
         row=QHBoxLayout(); row.setContentsMargins(0,15,0,15); row.setSpacing(18); words=QVBoxLayout(); words.setSpacing(5)
-        words.addWidget(label(title,'section')); words.addWidget(label(description,'description')); row.addLayout(words,1); row.addWidget(control,0,Qt.AlignmentFlag.AlignVCenter); parent.addLayout(row)
+        words.addWidget(label(title,'section')); description_label=label(description,'description'); words.addWidget(description_label); row.addLayout(words,1); row.addWidget(control,0,Qt.AlignmentFlag.AlignVCenter); parent.addLayout(row)
         if rule:
             line=QFrame(); line.setObjectName('rule'); line.setFixedHeight(1); parent.addWidget(line)
+        return description_label
     def show_page(self,index):
         self.pages.setCurrentIndex(index); self.heading.setText(self.PAGE_NAMES[index])
         for i,button in enumerate(self.nav): button.setChecked(i==index)
     def refresh_microphones(self):
         import sounddevice as sd
-        self.microphone.blockSignals(True); self.microphone.clear(); self.microphone.addItem('По умолчанию в Windows',(None,None))
+        self.microphone.blockSignals(True); self.microphone.clear(); self.microphone.addItem(f'По умолчанию в {native.SYSTEM_NAME}',(None,None))
         try:
             for i,device in enumerate(sd.query_devices()):
-                if device['max_input_channels'] and device['hostapi']==0 and i!=0: self.microphone.addItem(device['name'],(i,device['name']))
+                if device['max_input_channels'] and (native.IS_MAC or device['hostapi']==0): self.microphone.addItem(device['name'],(i,device['name']))
             chosen=self.config.get('microphone')
             for index in range(self.microphone.count()):
                 if self.microphone.itemData(index)[0]==chosen: self.microphone.setCurrentIndex(index); break
@@ -395,7 +526,8 @@ class SettingsWindow(QWidget):
         self.config.update(microphone=device,microphone_name=name,language=self.language.currentData(),
                            wave_color=self.color.currentData(),bar_style=self.panel_style.currentData(),
                            sound_enabled=self.sound_enabled.isChecked(),sound_style=self.sound_style.currentData(),
-                           sound_volume=self.sound_volume.value(),autostart=self.autostart.isChecked())
+                           sound_volume=self.sound_volume.value(),autostart=self.autostart.isChecked(),
+                           idle_unload_seconds=self.idle_unload.currentData())
         self.changed.emit()
     def set_status(self,text,error=False):
         self.status.setText(text); self.status.setStyleSheet('color:#A44332;' if error else 'color:#486449;'); self.retry.setVisible(error)

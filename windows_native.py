@@ -3,9 +3,10 @@ from __future__ import annotations
 
 import ctypes as C
 from ctypes import wintypes as W
-from dataclasses import dataclass
 import threading
 import time
+from windows_focus import focused_edit_key
+from dictation_hotkey import HotkeyState, parse_shortcut, WINDOWS_KEYS, WINDOWS_MODIFIERS
 
 user32 = C.WinDLL("user32", use_last_error=True)
 kernel32 = C.WinDLL("kernel32", use_last_error=True)
@@ -56,6 +57,7 @@ user32.UnhookWindowsHookEx.argtypes = [W.HHOOK]
 user32.GetMessageW.argtypes = [C.POINTER(W.MSG), W.HWND, W.UINT, W.UINT]
 user32.GetMessageW.restype = W.BOOL
 user32.PostThreadMessageW.argtypes = [W.DWORD, W.UINT, W.WPARAM, W.LPARAM]
+user32.PeekMessageW.argtypes = [C.POINTER(W.MSG), W.HWND, W.UINT, W.UINT, W.UINT]
 user32.GetForegroundWindow.restype = W.HWND
 user32.GetWindowThreadProcessId.argtypes = [W.HWND, C.POINTER(W.DWORD)]
 user32.GetWindowThreadProcessId.restype = W.DWORD
@@ -69,6 +71,9 @@ user32.SetWindowPos.argtypes = [W.HWND, W.HWND, C.c_int, C.c_int, C.c_int, C.c_i
 user32.SendInput.argtypes = [W.UINT, C.POINTER(INPUT), C.c_int]
 user32.SendInput.restype = W.UINT
 user32.GetClipboardSequenceNumber.restype = W.DWORD
+user32.RegisterHotKey.argtypes = [W.HWND, C.c_int, W.UINT, W.UINT]
+user32.RegisterHotKey.restype = W.BOOL
+user32.UnregisterHotKey.argtypes = [W.HWND, C.c_int]
 kernel32.GetModuleHandleW.argtypes = [W.LPCWSTR]
 kernel32.GetModuleHandleW.restype = W.HMODULE
 kernel32.GetCurrentThreadId.restype = W.DWORD
@@ -100,13 +105,29 @@ def focus_target():
     thread_id = user32.GetWindowThreadProcessId(hwnd, None) if hwnd else 0
     info = GUITHREADINFO(cbSize=C.sizeof(GUITHREADINFO))
     user32.GetGUIThreadInfo(thread_id, C.byref(info))
-    return int(hwnd or 0), int(info.hwndFocus or 0)
+    return int(hwnd or 0), int(info.hwndFocus or 0), focused_edit_key()
 
 
 def same_target(target):
+    if not target_known(target):
+        return False
     current = focus_target()
-    return bool(target and target[0] and current[0] == target[0]
-                and (not target[1] or current[1] == target[1]))
+    return current == target
+
+
+def target_known(target):
+    return bool(target and len(target) == 3 and target[0] and target[1] and target[2] is not None)
+
+
+def check_shortcut(shortcut):
+    if shortcut.default:
+        return
+    masks = {"alt": 1, "ctrl": 2, "shift": 4}
+    if not user32.RegisterHotKey(None, 0x574C, 0x4000 | sum(masks[m] for m in shortcut.modifiers),
+                                WINDOWS_KEYS[shortcut.key]):
+        code = C.get_last_error()
+        raise OSError(f"Windows не разрешила сочетание (код {code}). Оно может быть занято. Выберите другое.")
+    user32.UnregisterHotKey(None, 0x574C)
 
 
 def no_activate(hwnd):
@@ -116,65 +137,30 @@ def no_activate(hwnd):
     user32.SetWindowPos(hwnd, W.HWND(-1), 0, 0, 0, 0, 0x01 | 0x02 | 0x10)
 
 
-@dataclass
-class AltState:
-    """Small deterministic reducer, independently testable without global hooks."""
-    threshold: float = .18
-    held: bool = False
-    forwarded: bool = False
-    canceled: bool = False
-    started: float = 0.0
-    escape_down: bool = False
-
-    def process(self, vk, down, now, other_modifiers=False):
-        # Return (suppress, notification, [(vk, up, extended)]).
-        if vk == 0xA4:
-            if down:
-                if self.held:
-                    return not self.forwarded, None, []
-                if other_modifiers:
-                    return False, None, []
-                self.held, self.forwarded, self.canceled = True, False, False
-                self.started = now
-                return True, "down", []
-            if not self.held:
-                return False, None, []
-            self.held = False
-            if self.forwarded:
-                return False, None, []
-            if self.canceled:
-                return True, None, []
-            if now - self.started < self.threshold:
-                return True, "cancel", [(0xA4, False, False), (0xA4, True, False)]
-            return True, "up", []
-        if vk == 0x1B and self.escape_down and not down:
-            self.escape_down = False
-            return True, None, []
-        if self.held and not self.forwarded and down:
-            if vk == 0x1B:
-                self.canceled = True
-                self.escape_down = True
-                return True, "cancel", []
-            self.forwarded = True
-            self.canceled = True
-            return True, "cancel", [(0xA4, False, False), (vk, False, False)]
-        return False, None, []
-
-
 class KeyboardHook(threading.Thread):
-    def __init__(self, emit, threshold=.18):
+    def __init__(self, emit, threshold=.18, shortcut="default", mode="hold"):
         super().__init__(name="WhisperLocal-Hotkey", daemon=True)
         self.emit = emit
-        self.state = AltState(threshold)
+        self.state = HotkeyState(parse_shortcut(shortcut), threshold, mode,
+                                 replay_default=shortcut == "default")
         self.hook = None
         self.thread_id = 0
         self.ready = threading.Event()
         self.error = None
         self.enabled = True
         self.escape_enabled = False
+        self.stop_requested = threading.Event()
 
     def run(self):
         self.thread_id = kernel32.GetCurrentThreadId()
+        msg = W.MSG()
+        # Create the message queue before announcing readiness or accepting WM_QUIT.
+        user32.PeekMessageW(C.byref(msg), None, 0, 0, 0)
+        self.state.pressed_modifiers = {name for vk, name in WINDOWS_MODIFIERS.items()
+                                       if user32.GetAsyncKeyState(vk) & 0x8000}
+        primary = 0xA4 if self.state.shortcut.default else WINDOWS_KEYS[self.state.shortcut.key]
+        self.state.primary_down = bool(user32.GetAsyncKeyState(primary) & 0x8000)
+        names = {vk: name for name, vk in WINDOWS_KEYS.items()} | WINDOWS_MODIFIERS | {0x1B: "escape"}
 
         @HOOKPROC
         def callback(code, wparam, lparam):
@@ -185,22 +171,15 @@ class KeyboardHook(threading.Thread):
                 return user32.CallNextHookEx(self.hook, code, wparam, lparam)
             down = wparam in (0x100, 0x104)
             try:
-                if self.enabled or self.state.held or self.state.escape_down:
-                    modifiers = any(user32.GetAsyncKeyState(v) & 0x8000
-                                    for v in (0x10, 0x11, 0x5B, 0x5C, 0xA5))
-                    suppress, event, replay = self.state.process(
-                        key.vkCode, down, time.monotonic(), modifiers)
-                    if replay:
-                        if len(replay) > 1 and replay[-1][0] != 0xA4:
-                            replay[-1] = (replay[-1][0], False, bool(key.flags & 1))
-                        send_keys(replay)
-                    if event:
-                        self.emit(event)
-                    if suppress:
-                        return 1
-                if self.escape_enabled and key.vkCode == 0x1B:
-                    if down:
-                        self.emit("cancel")
+                suppress, event, replay = self.state.process(
+                    names.get(key.vkCode, "other"), down, time.monotonic(),
+                    enabled=self.enabled, escape_enabled=self.escape_enabled)
+                if replay:
+                    send_keys([(0xA4, False, False)] + ([(0xA4, True, False)] if replay == "tap"
+                              else [(key.vkCode, False, bool(key.flags & 1))]))
+                if event:
+                    self.emit(event)
+                if suppress:
                     return 1
             except Exception:
                 # Fail open: never break keyboard input because the app failed.
@@ -214,15 +193,15 @@ class KeyboardHook(threading.Thread):
             self.ready.set()
             return
         self.ready.set()
-        msg = W.MSG()
         try:
-            while user32.GetMessageW(C.byref(msg), None, 0, 0) > 0:
+            while not self.stop_requested.is_set() and user32.GetMessageW(C.byref(msg), None, 0, 0) > 0:
                 user32.TranslateMessage(C.byref(msg))
                 user32.DispatchMessageW(C.byref(msg))
         finally:
             user32.UnhookWindowsHookEx(self.hook)
 
     def stop(self):
+        self.stop_requested.set()
         if self.thread_id:
             user32.PostThreadMessageW(self.thread_id, 0x12, 0, 0)
         self.join(timeout=2)

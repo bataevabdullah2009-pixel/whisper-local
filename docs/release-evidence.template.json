@@ -1,0 +1,193 @@
+{
+  "schema_version": 1,
+  "source_commit": "",
+  "sound_redistribution": {
+    "status": "unknown",
+    "permission_reference": ""
+  },
+  "targets": {
+    "Windows-x64": {
+      "signed_manifest": {},
+      "physical": {
+        "artifact_sha256": "",
+        "source_commit": "",
+        "tester": "",
+        "tested_at": "",
+        "os_version": "",
+        "hardware": "",
+        "checks": {
+          "clean_install_first_dictation_uninstall": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "microphone_and_permissions": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "hotkeys_hold_toggle_escape": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "paste_clipboard_focus_targets": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "microphone_disconnect_sleep_wake": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "offline_dictation": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "download_interruption_restart_disk_full": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "model_idle_unload_reload": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "dictionary_and_cleanup": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "capsule_and_sound_choices": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "cpu_and_nvidia_fallback": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "trusted_publisher_install_uninstall": {
+            "status": "unknown",
+            "evidence": ""
+          }
+        }
+      }
+    },
+    "macOS-Apple-Silicon": {
+      "signed_manifest": {},
+      "physical": {
+        "artifact_sha256": "",
+        "source_commit": "",
+        "tester": "",
+        "tested_at": "",
+        "os_version": "",
+        "hardware": "",
+        "checks": {
+          "clean_install_first_dictation_uninstall": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "microphone_and_permissions": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "hotkeys_hold_toggle_escape": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "paste_clipboard_focus_targets": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "microphone_disconnect_sleep_wake": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "offline_dictation": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "download_interruption_restart_disk_full": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "model_idle_unload_reload": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "dictionary_and_cleanup": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "capsule_and_sound_choices": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "gatekeeper_download_quarantine_offline": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "metal_cpu_fallback": {
+            "status": "unknown",
+            "evidence": ""
+          }
+        }
+      }
+    },
+    "macOS-Intel": {
+      "signed_manifest": {},
+      "physical": {
+        "artifact_sha256": "",
+        "source_commit": "",
+        "tester": "",
+        "tested_at": "",
+        "os_version": "",
+        "hardware": "",
+        "checks": {
+          "clean_install_first_dictation_uninstall": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "microphone_and_permissions": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "hotkeys_hold_toggle_escape": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "paste_clipboard_focus_targets": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "microphone_disconnect_sleep_wake": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "offline_dictation": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "download_interruption_restart_disk_full": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "model_idle_unload_reload": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "dictionary_and_cleanup": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "capsule_and_sound_choices": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "gatekeeper_download_quarantine_offline": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "metal_cpu_fallback": {
+            "status": "unknown",
+            "evidence": ""
+          }
+        }
+      }
+    }
+  }
+}

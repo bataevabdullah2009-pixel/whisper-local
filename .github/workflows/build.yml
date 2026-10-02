@@ -1,0 +1,122 @@
+name: Desktop builds
+on:
+  pull_request:
+    branches: [main, dev, 'codex/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  desktop:
+    env:
+      PYTHONFAULTHANDLER: '1'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            label: Windows-x64
+          - os: macos-15
+            label: macOS-Apple-Silicon
+          - os: macos-15-intel
+            label: macOS-Intel
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Dependencies
+        run: python -m pip install -r requirements-build.txt
+      - name: Windows GPU runtime
+        if: runner.os == 'Windows'
+        run: python -m pip install -r requirements-gpu.txt
+      - name: Build pinned whisper.cpp with embedded Metal
+        if: runner.os == 'macOS'
+        run: python scripts/build_whispercpp.py
+      - name: Unit and UI tests
+        run: python -m unittest discover -s tests -v
+      - name: Icons
+        run: python scripts/build_assets.py
+      - name: Build standalone applications
+        run: python -m PyInstaller --noconfirm WhisperLocal.spec
+      - name: Cache test model
+        uses: actions/cache@v4
+        with:
+          path: build/test-models
+          key: whisper-fixtures-${{ hashFiles('model_catalog.json', 'whispercpp_catalog.json') }}
+      - name: Download verified public speech fixture
+        run: python scripts/fetch_test_speech.py
+      - name: Windows bundle smoke test
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          $process = Start-Process -FilePath .\dist\WhisperLocal\WhisperLocal.exe -ArgumentList '--smoke-test --data-dir build/smoke' -PassThru -WindowStyle Hidden
+          if (-not $process.WaitForExit(60000)) { Stop-Process -Id $process.Id; throw 'Packaged GUI did not exit.' }
+          if ($process.ExitCode -ne 0) {
+            Get-Content build/smoke/startup.log -ErrorAction SilentlyContinue
+            throw 'Packaged GUI smoke test failed.'
+          }
+          python scripts/smoke_asr.py --worker dist/WhisperLocal/WhisperWorker.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged recognition smoke test failed.' }
+          python scripts/smoke_reliability.py --worker dist/WhisperLocal/WhisperWorker.exe --audio build/jfk.wav
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged cancellation/reload test failed.' }
+          python scripts/smoke_memory.py --worker dist/WhisperLocal/WhisperWorker.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged memory lifecycle test failed.' }
+      - name: macOS bundle smoke test
+        if: runner.os == 'macOS'
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          "dist/Whisper Local.app/Contents/MacOS/WhisperLocal" --smoke-test --data-dir build/smoke
+          python scripts/smoke_asr.py --worker "dist/Whisper Local.app/Contents/MacOS/WhisperWorker"
+          python scripts/smoke_reliability.py --worker "dist/Whisper Local.app/Contents/MacOS/WhisperWorker" --audio build/jfk.wav
+          python scripts/smoke_memory.py --worker "dist/Whisper Local.app/Contents/MacOS/WhisperWorker"
+      - name: Mac whisper.cpp recognition, fallback and memory lifecycle
+        if: runner.os == 'macOS'
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python scripts/smoke_whispercpp.py --worker "dist/Whisper Local.app/Contents/MacOS/WhisperWorker"
+      - name: Mac default small model CPU and Metal timings
+        if: matrix.label == 'macOS-Apple-Silicon'
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python scripts/smoke_whispercpp.py --worker "dist/Whisper Local.app/Contents/MacOS/WhisperWorker" --model-id small --benchmark-only --output build/whispercpp-small-smoke.json
+      - name: Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' packaging/windows.iss
+          if ($LASTEXITCODE -ne 0) { throw 'Installer build failed.' }
+      - name: Windows install and uninstall without host Python
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/smoke_install_windows.ps1
+      - name: macOS disk image
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p build/dmg
+          cp -R "dist/Whisper Local.app" build/dmg/
+          ln -s /Applications build/dmg/Applications
+          hdiutil create -volname "Whisper Local" -srcfolder build/dmg -ov -format UDZO "dist/WhisperLocal-${{ matrix.label }}.dmg"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WhisperLocal-${{ matrix.label }}
+          path: |
+            dist/*Setup.exe
+            dist/*.dmg
+            build/whispercpp-smoke.json
+            build/whispercpp-small-smoke.json
+          if-no-files-found: error
+          retention-days: 14
