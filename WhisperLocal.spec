@@ -5,6 +5,16 @@ import sys
 from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_submodules, copy_metadata
 
 root = Path(SPECPATH)
+mac_signing = {}
+gui_mac_signing = {}
+if sys.platform == "darwin":
+    # CI preview builds remain ad-hoc. Release credentials live only in the
+    # manual signing workflow; PyInstaller signs every collected native library.
+    identity = os.environ.get("WHISPERLOCAL_MACOS_SIGNING_IDENTITY")
+    if identity:
+        mac_signing = dict(codesign_identity=identity)
+        gui_mac_signing = dict(**mac_signing,
+                               entitlements_file=str(root / "packaging/macos-entitlements.plist"))
 data = [(str(root / name), ".") for name in ("config.example.json", "model_catalog.json", "whispercpp_catalog.json")]
 data += [(str(root / "assets/sounds"), "assets/sounds")]
 data += collect_data_files("faster_whisper") + collect_data_files("certifi")
@@ -42,9 +52,9 @@ if sys.platform == "win32":
                              if Path(entry[0]).name.lower() not in system_icu]
 icon = str(root / "build/app.ico") if sys.platform == "win32" else None
 gui_exe = EXE(PYZ(gui.pure), gui.scripts, [], exclude_binaries=True, name="WhisperLocal",
-              console=False, icon=icon, upx=False)
+              console=False, icon=icon, upx=False, **gui_mac_signing)
 worker_exe = EXE(PYZ(worker.pure), worker.scripts, [], exclude_binaries=True, name="WhisperWorker",
-                 console=True, upx=False)
+                 console=True, upx=False, **mac_signing)
 collection = COLLECT(gui_exe, worker_exe, gui.binaries, worker.binaries, gui.datas, worker.datas,
                      name="WhisperLocal", upx=False)
 if sys.platform == "darwin":

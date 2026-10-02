@@ -1,0 +1,242 @@
+{
+  "schema_version": 1,
+  "source_commit": "",
+  "sound_redistribution": {
+    "status": "unknown",
+    "permission_reference": ""
+  },
+  "targets": {
+    "Windows-x64": {
+      "signed_manifest": {},
+      "physical": {
+        "artifact_sha256": "",
+        "source_commit": "",
+        "tester": "",
+        "tested_at": "",
+        "os_version": "",
+        "hardware": "",
+        "checks": {
+          "clean_install_first_dictation_uninstall": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "microphone_and_permissions": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "hotkeys_hold_toggle_escape": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "paste_clipboard_focus_targets": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "microphone_disconnect_sleep_wake": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "offline_dictation": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "download_interruption_restart_disk_full": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "model_idle_unload_reload": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "dictionary_and_cleanup": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "capsule_and_sound_choices": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "cpu_and_nvidia_fallback": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "trusted_publisher_install_uninstall": {
+            "status": "unknown",
+            "evidence": ""
+          }
+        }
+      }
+    },
+    "macOS-Apple-Silicon": {
+      "signed_manifest": {},
+      "physical": {
+        "artifact_sha256": "",
+        "source_commit": "",
+        "tester": "",
+        "tested_at": "",
+        "os_version": "",
+        "hardware": "",
+        "checks": {
+          "clean_install_first_dictation_uninstall": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "microphone_and_permissions": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "hotkeys_hold_toggle_escape": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "paste_clipboard_focus_targets": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "microphone_disconnect_sleep_wake": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "offline_dictation": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "download_interruption_restart_disk_full": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "model_idle_unload_reload": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "dictionary_and_cleanup": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "capsule_and_sound_choices": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "gatekeeper_download_quarantine_offline": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "metal_cpu_fallback": {
+            "status": "unknown",
+            "evidence": ""
+          }
+        }
+      }
+    },
+    "macOS-Intel": {
+      "signed_manifest": {},
+      "physical": {
+        "artifact_sha256": "",
+        "source_commit": "",
+        "tester": "",
+        "tested_at": "",
+        "os_version": "",
+        "hardware": "",
+        "checks": {
+          "clean_install_first_dictation_uninstall": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "microphone_and_permissions": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "hotkeys_hold_toggle_escape": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "paste_clipboard_focus_targets": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "microphone_disconnect_sleep_wake": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "offline_dictation": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "download_interruption_restart_disk_full": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "model_idle_unload_reload": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "dictionary_and_cleanup": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "capsule_and_sound_choices": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "gatekeeper_download_quarantine_offline": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "metal_cpu_fallback": {
+            "status": "unknown",
+            "evidence": ""
+          }
+        }
+      }
+    }
+  },
+  "observed_at": "2026-10-01",
+  "development_observations": [
+    {
+      "check": "source-unit-ui-suite-after-downloader",
+      "status": "passed",
+      "scope": "199 tests: 198 passed, one Mac-only skip before release additions. Final combined suite: 210 tests, 209 passed, one Mac-only skip. These are code checks."
+    },
+    {
+      "check": "Windows-live-microphone",
+      "status": "passed",
+      "scope": "Source smoke_microphone.py captured 5760 samples and passed stream abort/reopen; audio discarded, never saved or transcribed. Does not prove permissions, installer or end-to-end dictation."
+    },
+    {
+      "check": "Windows-native-focus-clipboard-fixture",
+      "status": "unknown",
+      "scope": "smoke_windows_focus.py timed out finding fixture_target before any paste. No paste/focus/clipboard success claimed; no automatic retry."
+    },
+    {
+      "check": "Windows-source-and-unsigned-portable-lifecycle",
+      "status": "passed",
+      "scope": "CPU and CUDA smoke_memory.py passed using preexisting pinned CTranslate2 base cache and cached public JFK fixture. No model download."
+    },
+    {
+      "check": "Windows-unsigned-portable-GUI",
+      "status": "passed",
+      "scope": "Isolated PyInstaller build in build/release-dist and GUI --smoke-test in build/release-gui-smoke; does not prove clean install, global hotkeys or real paste."
+    },
+    {
+      "check": "current-three-platform-CI",
+      "status": "blocked",
+      "scope": "Jobs did not start: account payments failed or spending limit must be increased. No Windows/Mac CI validation claimed.",
+      "reference": "https://github.com/bataevabdullah2009-pixel/whisper-local/actions/runs/36900622996"
+    },
+    {
+      "check": "public-signing-and-macOS-notarization",
+      "status": "unknown",
+      "scope": "Owner has no public signing certificates. Pipeline prepared; actual signing/notarization has not run."
+    },
+    {
+      "check": "physical-Apple-Silicon-and-Intel",
+      "status": "unknown",
+      "scope": "Owner has no Macs; neither architecture accessed or tested."
+    },
+    {
+      "check": "Windows-clean-installer-and-user-workflow",
+      "status": "unknown",
+      "scope": "No Inno Setup installed locally; no installer run because shared public installer AppId/registry could affect another installation. No complete real user hotkey/paste/offline workflow proof."
+    }
+  ]
+}

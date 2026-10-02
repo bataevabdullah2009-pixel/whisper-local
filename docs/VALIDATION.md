@@ -34,6 +34,12 @@ These are a checklist, not a claim that these tests have already passed.
   on Windows and physical Macs. See [TEXT-CLEANUP.md](TEXT-CLEANUP.md).
 - Sign Windows installers and sign/notarize Mac bundles before a broad public release.
 
+Signing setup, the separate manual candidate workflow and physical evidence requirements are in
+[RELEASE.md](RELEASE.md). The [2026-10-01 readiness record](release-readiness-2026-10-01.json)
+keeps partial Windows source/portable checks distinct from full release approval: current CI is
+blocked by account billing, both physical Mac types and public signing/notarization are unknown.
+Durable download behavior and its code checks are in [DOWNLOADS.md](DOWNLOADS.md).
+
 ## Scope of this preview
 
 Mac CTranslate2 recognition uses CPU; experimental whisper.cpp / Metal remains subject to the physical
