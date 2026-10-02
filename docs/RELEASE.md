@@ -5,10 +5,10 @@ The owner currently has no Macs or public signing certificates. No actual public
 Apple notarization has been performed. The personal installation in
 `C:\Users\batae\Documents\WhisperLocal` is outside this work.
 
-## Current evidence, 2026-10-01
+## Current evidence, 2026-10-02
 
-- The downloader source suite ran 199 tests: 198 passed, one Mac-only skip before the release additions.
-- The combined source suite ran 210 tests: 209 passed, one Mac-only skip after the release additions.
+- The 2026-10-01 downloader source suite ran 199 tests: 198 passed, one Mac-only skip before the release additions.
+- That day's combined source suite ran 210 tests: 209 passed, one Mac-only skip after the release additions.
 - A live Windows microphone smoke captured 5760 samples and passed stream abort/reopen.
   It discarded audio and did not transcribe or save it.
 - The native Windows focus/clipboard fixture timed out before identifying its target and before
@@ -16,16 +16,20 @@ Apple notarization has been performed. The personal installation in
 - Source and isolated unsigned Windows portable worker checks passed CPU and NVIDIA CUDA
   model unload/reload and memory lifecycle, using an existing checksum-pinned base model and
   cached public JFK fixture. The portable GUI smoke also passed. No model was downloaded.
-- Current [three-platform CI run 36900622996](https://github.com/bataevabdullah2009-pixel/whisper-local/actions/runs/36900622996)
-  did not start any job because GitHub reported failed account payments or a spending limit.
-  Current Windows, Apple Silicon and Intel CI validation is **blocked** until the owner resolves billing.
+- [Desktop builds run 37026534988](https://github.com/bataevabdullah2009-pixel/whisper-local/actions/runs/37026534988)
+  passed for source commit `49aa8c0d3318bab94eb42161a12654f801b678ea` on native Windows x64,
+  macOS Apple Silicon and macOS Intel runners: unit/UI tests, unsigned or ad-hoc packaged smoke,
+  and hosted Windows installation/uninstallation without host Python. This establishes hosted
+  code/build checks; microphone permissions, hotkeys, real paste and physical machines remain unverified.
 - Clean Windows installation, a complete user dictation/paste workflow, both physical Mac types,
   public signatures and notarization remain **unknown**. Inno Setup is not installed here, and
   the shared installer AppId/registry was not exercised on this development computer.
 
-The machine-readable [current record](release-readiness-2026-10-01.json) preserves these partial
+The machine-readable [current record](release-readiness-2026-10-02.json) preserves these partial
 observations separately from the release gates. It intentionally cannot pass the readiness check.
 Code checks and unsigned portable smoke do not certify a future signed installer with different bytes.
+The [2026-10-01 historical record](release-readiness-2026-10-01.json) retains the earlier CI billing
+failure and the original partial Windows observations.
 
 ## Two separate workflows
 
@@ -36,13 +40,19 @@ runs tests and packaged offline smoke, and uploads verified signed candidates an
 It fails when credentials, signing, timestamps, notarization or verification are missing or fail.
 It never publishes a GitHub Release or treats physical checks as passed.
 
-GitHub must have this workflow on the repository's default branch before `workflow_dispatch` is
-available. The current default is `main`; preparing a PR does not make this manual workflow immediately
-dispatchable. Integrate it into the default branch only with the owner's explicit merge instruction.
-Billing also needs to allow hosted jobs to start.
+Dispatch the manual workflow from the exact reviewed commit after its integration into the
+repository's default branch, `main`. Integrating changes into `main` and publishing a release
+require the owner's explicit instruction. The successful Desktop builds run does not show that
+the separate signed workflow has run or that signing credentials are available.
 
-Before adding credentials, create the **release-signing** GitHub environment and configure
-reviewers and explicit **selected branches and tags** that may use signing credentials.
+The **release-signing** GitHub environment was verified on 2026-10-02: selected deployment
+branches permit `main` only, and the required reviewer is the sole owner,
+`bataevabdullah2009-pixel` (GitHub user ID `257003617`). Self-review is allowed because there
+is only one owner. The environment currently has **zero secrets**, and the repository has
+no self-hosted runners. This configuration does not establish signing credentials or a signed build.
+
+Before adding credentials, preserve the required reviewer and explicit selected deployment
+branches. Change these restrictions only with the owner's instruction.
 Do not choose “Protected branches only” without actual branch protections: GitHub allows all
 branches when none are protected. Keep credentials in environment secrets. No signing secret
 is available to the ordinary PR workflow. Each platform fails closed on absent credentials.
@@ -119,8 +129,10 @@ the app to Applications, and launching it while offline remain physical release 
 Use willing testers with a clean Windows user without Python, an Apple Silicon Mac, and an
 Intel Mac. Hosted runners, virtualized Mac CI, Rosetta on Apple Silicon, and this Windows
 computer do not substitute for the two physical Mac architectures.
+The [Mac tester guide](MAC-RELEASE-TESTING.md) covers tester prerequisites, artifact identity,
+permissions, offline Gatekeeper checks and recording results for both native Mac architectures.
 
-1. Resolve CI billing and signing setup; build a signed candidate from the exact reviewed commit.
+1. Complete signing setup; build a signed candidate from the exact reviewed commit.
    Download the actual installer/DMG through a browser and retain normal quarantine/Gatekeeper
    protections. Record the provided manifest, SHA-256, OS version, hardware/backend, tester and date.
 2. Install as a fresh user, handle microphone and Accessibility/Input Monitoring prompts, and
@@ -139,9 +151,11 @@ computer do not substitute for the two physical Mac architectures.
 
 Record outcome and non-sensitive diagnostic metadata. Do not attach private microphone audio,
 dictation text or clipboard contents. A blocked/skipped scenario stays `unknown` or `failed`.
-The existing sounds and capsule are preserved. [Sound provenance](../assets/sounds/SOURCES.md)
-does not grant redistribution permission for the Flow cues; retain a separate **unknown**
-redistribution gate until the owner obtains permission or explicitly approves another resolution.
+The existing sounds and capsule are preserved. On 2026-10-02 the owner explicitly instructed
+keeping the existing cues for distribution; the current record stores that owner decision separately.
+[Sound provenance](../assets/sounds/SOURCES.md) and the owner decision do not establish permission
+from the sound rights holders. The redistribution permission gate remains **unknown** with an
+empty permission reference until supporting permission or another verified resolution is recorded.
 
 Copy [release-evidence.template.json](release-evidence.template.json) to an owner evidence file.
 Insert the three exact signed CI manifests and fill the physical records only after real tests.
