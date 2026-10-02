@@ -391,7 +391,12 @@ from model_manager import download_file
 url, destination, metadata, checkpoint = sys.argv[1:]
 def progress(value):
     if value and checkpoint:
-        Path(checkpoint).write_text(str(value), encoding='ascii')
+        # Publish only a fully written checkpoint. The parent can terminate us
+        # as soon as it sees the marker, including on a busy Windows runner.
+        marker = Path(checkpoint)
+        temporary = marker.with_suffix('.tmp')
+        temporary.write_text(str(value), encoding='ascii')
+        temporary.replace(marker)
         time.sleep(120)
 download_file(url, Path(destination), json.loads(metadata), progress, urllib.request.urlopen)
 """
