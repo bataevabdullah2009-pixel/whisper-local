@@ -75,7 +75,8 @@ class ReleaseGateTests(unittest.TestCase):
 
     def test_current_record_and_template_remain_not_ready(self):
         root = Path(__file__).resolve().parents[1]
-        for name in ("release-evidence.template.json", "release-readiness-2026-10-01.json"):
+        for name in ("release-evidence.template.json", "release-readiness-2026-10-01.json",
+                     "release-readiness-2026-10-02.json"):
             with self.subTest(name=name):
                 evidence = json.loads((root / "docs" / name).read_text(encoding="utf-8"))
                 self.assertTrue(readiness_errors(evidence))

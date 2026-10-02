@@ -35,9 +35,15 @@ These are a checklist, not a claim that these tests have already passed.
 - Sign Windows installers and sign/notarize Mac bundles before a broad public release.
 
 Signing setup, the separate manual candidate workflow and physical evidence requirements are in
-[RELEASE.md](RELEASE.md). The [2026-10-01 readiness record](release-readiness-2026-10-01.json)
-keeps partial Windows source/portable checks distinct from full release approval: current CI is
-blocked by account billing, both physical Mac types and public signing/notarization are unknown.
+[RELEASE.md](RELEASE.md). The [2026-10-02 readiness record](release-readiness-2026-10-02.json)
+records successful [three-platform Desktop builds](https://github.com/bataevabdullah2009-pixel/whisper-local/actions/runs/37026534988)
+for source commit `49aa8c0d3318bab94eb42161a12654f801b678ea`, including unit/UI tests,
+unsigned or ad-hoc packaged smoke and hosted Windows installation/uninstallation. It keeps those
+checks separate from full release approval: physical Windows/Mac workflows, public signing,
+notarization and sound redistribution permission remain unknown. The
+[historical record](release-readiness-2026-10-01.json) preserves the earlier blocked CI run.
+The [Mac tester guide](MAC-RELEASE-TESTING.md) describes collecting real Apple Silicon and Intel
+evidence without treating hosted CI as a physical check.
 Durable download behavior and its code checks are in [DOWNLOADS.md](DOWNLOADS.md).
 
 ## Scope of this preview
