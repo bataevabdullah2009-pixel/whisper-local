@@ -37,6 +37,13 @@ class PublicationFixture:
         self.tag_reference = None
         self.ancestor = True
         self.package_version = "0.1.0"
+        self.default_branch = "main"
+        self.main_commit = "d" * 40
+        self.candidate_workflow_tree = "c" * 40
+        self.main_workflow_tree = self.candidate_workflow_tree
+        self.truncated_tree = False
+        self.change_workflows_after_download = False
+        self.change_workflows_after_draft = False
         self.api = publication.GitHub(self.repository)
         self.api.get = self.get
         self.run = {"id": 123, "workflow_id": 9, "path": publication.WORKFLOW_PATH,
@@ -76,6 +83,13 @@ class PublicationFixture:
                 "GITHUB_EVENT_NAME": "workflow_dispatch", "GITHUB_REPOSITORY": self.repository}
 
     def get(self, endpoint, *, missing_ok=False):
+        if endpoint == "":
+            return {"default_branch": self.default_branch}
+        if endpoint == "git/ref/heads/main":
+            return {"object": {"type": "commit", "sha": self.main_commit}}
+        if endpoint == f"git/trees/{self.main_commit}?recursive=1":
+            return {"truncated": self.truncated_tree,
+                    "tree": [{"path": ".github/workflows", "type": "tree", "sha": self.main_workflow_tree}]}
         if endpoint == "actions/workflows/release.yml":
             return {"id": 9, "path": publication.WORKFLOW_PATH}
         if endpoint == "actions/runs/123":
@@ -100,6 +114,8 @@ class PublicationFixture:
         self.commands.append(arguments)
         if arguments[:3] == ["git", "rev-parse", "HEAD"]:
             return self.commit.encode()
+        if arguments == ["git", "rev-parse", f"{self.source}:.github/workflows"]:
+            return self.candidate_workflow_tree.encode()
         if arguments[:2] == ["git", "show"]:
             path = arguments[2].split(":", 1)[1]
             if path.endswith(".json"):
@@ -115,6 +131,8 @@ class PublicationFixture:
                 raise publication.ReleaseError("Candidate source is not an ancestor")
             return b""
         if arguments[:3] == ["gh", "run", "download"]:
+            if self.change_workflows_after_download:
+                self.main_workflow_tree = "e" * 40
             directory = Path(arguments[arguments.index("--dir") + 1])
             directory.mkdir()
             target = arguments[arguments.index("--name") + 1].removeprefix("WhisperLocal-signed-")
@@ -143,6 +161,8 @@ class PublicationFixture:
                 raise publication.ReleaseError("Unknown network outcome")
             if self.wrong_tag_after_create:
                 self.tag_reference["object"]["sha"] = "c" * 40
+            if self.change_workflows_after_draft:
+                self.main_workflow_tree = "e" * 40
             return b""
         if arguments[:4] == ["gh", "api", "--method", "POST"]:
             if self.concurrent_tag:
@@ -275,6 +295,35 @@ class PublicationTests(unittest.TestCase):
         fixture = PublicationFixture()
         fixture.package_version = "0.2.0"
         self.assert_no_mutation(fixture)
+
+    def test_changed_default_branch_or_incomplete_remote_tree_never_mutate(self):
+        for field, value in (("default_branch", "other"), ("truncated_tree", True)):
+            with self.subTest(field=field):
+                fixture = PublicationFixture()
+                setattr(fixture, field, value)
+                self.assert_no_mutation(fixture)
+                self.assertFalse(any(command[:3] == ["gh", "run", "download"] for command in fixture.commands))
+
+    def test_candidate_workflow_mismatch_fails_before_downloads_or_tag_creation(self):
+        fixture = PublicationFixture()
+        fixture.main_workflow_tree = "e" * 40
+        self.assert_no_mutation(fixture)
+        self.assertFalse(any(command[:3] == ["gh", "run", "download"] for command in fixture.commands))
+
+    def test_workflows_changed_during_download_fail_before_atomic_tag_creation(self):
+        fixture = PublicationFixture()
+        fixture.change_workflows_after_download = True
+        self.assert_no_mutation(fixture)
+        self.assertTrue(any(command[:3] == ["gh", "run", "download"] for command in fixture.commands))
+
+    def test_workflows_changed_after_draft_creation_keep_the_release_private(self):
+        fixture = PublicationFixture()
+        fixture.change_workflows_after_draft = True
+        status, output = fixture.execute()
+        self.assertEqual(status, 1, output)
+        self.assertIn("new signed candidate", output)
+        self.assertIs(fixture.release["draft"], True)
+        self.assertFalse(any(command[:4] == ["gh", "api", "--method", "PATCH"] for command in fixture.commands))
 
     def test_ambiguous_and_symbolic_link_candidate_files_are_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:

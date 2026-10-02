@@ -51,8 +51,9 @@ class GitHub:
         token = os.environ.get("GH_TOKEN", "")
         if not token:
             raise ReleaseError("GH_TOKEN is required")
+        suffix = f"/{endpoint}" if endpoint else ""
         request = Request(
-            f"https://api.github.com/repos/{self.repository}/{endpoint}",
+            f"https://api.github.com/repos/{self.repository}{suffix}",
             headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
                      "X-GitHub-Api-Version": "2022-11-28"},
         )
@@ -102,6 +103,31 @@ def validate_inputs(tag: str, run_id: str, repository: str, environment: dict) -
 
 def committed_file(commit: str, path: str) -> bytes:
     return command(["git", "show", f"{commit}:{path}"])
+
+
+def require_current_workflows(api: GitHub, source: str) -> None:
+    # Added/modified workflow files can require Workflows: write, which
+    # GITHUB_TOKEN cannot receive. Require an unchanged workflow tree;
+    # evidence-only descendants remain valid.
+    repository = api.get("")
+    if not isinstance(repository, dict) or repository.get("default_branch") != "main":
+        raise ReleaseError("The repository default branch must still be main")
+    reference = api.get("git/ref/heads/main")
+    object_record = reference.get("object", {}) if isinstance(reference, dict) else {}
+    main_sha = object_record.get("sha", "")
+    if (object_record.get("type") != "commit" or not isinstance(main_sha, str)
+            or not re.fullmatch(SHA_PATTERN, main_sha)):
+        raise ReleaseError("Current remote main commit could not be verified")
+    tree = api.get(f"git/trees/{main_sha}?recursive=1")
+    if (not isinstance(tree, dict) or tree.get("truncated") is not False
+            or not isinstance(tree.get("tree"), list)):
+        raise ReleaseError("Current main workflows require a complete GitHub tree response")
+    entries = [entry for entry in tree["tree"]
+               if isinstance(entry, dict) and entry.get("path") == ".github/workflows"]
+    candidate_tree = command(["git", "rev-parse", f"{source}:.github/workflows"]).decode().strip()
+    if (len(entries) != 1 or entries[0].get("type") != "tree"
+            or not re.fullmatch(SHA_PATTERN, candidate_tree) or entries[0].get("sha") != candidate_tree):
+        raise ReleaseError("Candidate workflows differ from current main; build a new signed candidate and record new proof")
 
 
 def validate_run(run: dict, workflow: dict, repository: str, run_id: str, source: str) -> None:
@@ -181,6 +207,7 @@ def preflight(api: GitHub, tag: str, run_id: str, publication_commit: str, works
         raise ReleaseError("Release evidence is incomplete:\n- " + "\n- ".join(errors))
     source = evidence["source_commit"]
     command(["git", "merge-base", "--is-ancestor", source, publication_commit])
+    require_current_workflows(api, source)
     windows_version = re.findall(r'^\s*#define AppVersion "([^"]+)"\s*$',
                                  committed_file(source, "packaging/windows.iss").decode(), re.MULTILINE)
     mac_version = re.findall(r'\bversion="([^"]+)"', committed_file(source, "WhisperLocal.spec").decode())
@@ -237,6 +264,7 @@ def verify_uploaded_assets(api: GitHub, release: dict, assets: Path, tag: str, w
 def publish(api: GitHub, tag: str, evidence: dict, assets: Path, notes: Path, workspace: Path) -> str:
     # Repeat the no-overwrite check immediately before the first remote mutation.
     api.version_absent(tag)
+    require_current_workflows(api, evidence["source_commit"])
     try:
         # Creating a new ref is atomic: an existing/racing tag causes failure.
         # Never update or delete a ref, including after an uncertain API result.
@@ -252,6 +280,7 @@ def publish(api: GitHub, tag: str, evidence: dict, assets: Path, notes: Path, wo
             raise ReleaseError("Created draft does not identify the exact candidate commit")
         verify_uploaded_assets(api, releases[0], assets, tag, workspace)
         require_candidate_tag(api, tag, evidence["source_commit"])
+        require_current_workflows(api, evidence["source_commit"])
         # Publish only the draft whose exact assets were inspected, by ID.
         command(["gh", "api", "--method", "PATCH", f"repos/{api.repository}/releases/{releases[0]['id']}",
                  "--input", "-"], input_data=b'{"draft": false}')

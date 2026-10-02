@@ -182,12 +182,20 @@ as `docs/releases/<tag>.md` through a reviewed PR into `main`. Copy the actual C
 unchanged into the evidence. The candidate source commit must be an ancestor of the publication
 commit: evidence can be committed after physical testing without rebuilding the tested packages.
 All physical and sound permission gates in the existing readiness validator remain mandatory.
+The repository default branch must still be `main`, and the candidate's entire `.github/workflows`
+tree must match current remote `main`. A later PR containing only evidence or release notes is
+compatible. If workflows change, build a new signed candidate and record proof for those new
+package bytes. GitHub requires `Workflows: write` when the target adds or modifies workflow
+files relative to the default branch; its built-in `GITHUB_TOKEN` cannot receive that permission.
+This helper conservatively requires the complete workflow tree to match.
 
 [publish_release.py](../scripts/publish_release.py) first runs with read-only repository permissions.
 It verifies the selected run's workflow, repository, manual event, `main` branch, successful result
 and source SHA; requires exactly three nonexpired artifacts; downloads each target separately;
 compares downloaded CI manifests and accepted/stapled notarization reports to owner evidence;
 and hashes all candidate bytes. Existing tags and draft or published releases are rejected.
+Workflow tree equality is checked before downloads, immediately before tag creation and again
+before publishing the draft; incomplete/truncated remote tree responses are rejected.
 The publication job repeats this preflight with `contents: write`, atomically creates a new version
 tag at the exact candidate SHA, and creates a draft with all three packages, `SHA256SUMS` and
 `release-evidence.json`. It verifies uploaded asset names, sizes and GitHub SHA-256 digests
@@ -220,3 +228,4 @@ not enable or claim GitHub's separate immutable Releases repository setting.
 - [GitHub workflow run metadata](https://docs.github.com/en/rest/actions/workflow-runs),
   [cross-run artifact downloads](https://docs.github.com/en/actions/tutorials/store-and-share-data),
   and [release asset digests](https://docs.github.com/en/rest/releases/assets)
+- [GitHub release target permission requirements](https://docs.github.com/en/rest/releases/releases)
