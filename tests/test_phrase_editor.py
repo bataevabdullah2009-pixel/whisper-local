@@ -46,6 +46,12 @@ class EditorContracts(unittest.TestCase):
             with self.subTest(source=source):
                 self.assertIsNone(accept_edit(source, candidate, []))
 
+    def test_model_cannot_add_paragraphs_or_change_spacing_around_line_breaks(self):
+        source, spans = protect_text("первая строка  \r\n  вторая строка")
+        candidate = source.replace("ZXQ0QXZ", " ZXQ0QXZ ")
+        self.assertEqual(accept_edit(source, candidate, spans), "первая строка  \r\n  вторая строка")
+        self.assertIsNone(accept_edit("первая строка вторая строка", "Первая строка\nвторая строка.", []))
+
     def test_old_configs_disable_editor_and_do_not_accept_incomplete_files(self):
         config = {"editor_enabled": "yes", "editor_model_path": 42}
         normalize_config(config)

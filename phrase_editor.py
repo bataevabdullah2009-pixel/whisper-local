@@ -45,7 +45,7 @@ def validate_editor_model(path):
 def protect_text(text, dictionary_pattern=None):
     """Hide technical spans, numbers, quotes, line breaks and dictionary spelling from the model."""
     spans = [m.span() for m in PROTECTED.finditer(text)]
-    spans += [m.span() for m in re.finditer(r"\d+(?:[.,:/-]\d+)*|\r\n|\r|\n", text)]
+    spans += [m.span() for m in re.finditer(r"\d+(?:[.,:/-]\d+)*|[ \t]*(?:\r\n|\r|\n)[ \t]*", text)]
     for line in re.finditer(r"[^\r\n]+", text):
         if CODE_LINE.search(line.group()):
             spans.append(line.span())
@@ -71,6 +71,12 @@ def accept_edit(source, candidate, originals):
         return None
     if any(marker in candidate for marker in ("<|", "<think>", "</think>", "```")):
         return None
+    if "\r" in candidate or "\n" in candidate:
+        return None  # Existing line separators are represented only by protected markers.
+    for index, original in enumerate(originals):
+        if "\r" in original or "\n" in original:
+            marker = re.escape(f"ZXQ{index}QXZ")
+            candidate = re.sub(r"[ \t]*" + marker + r"[ \t]*", f"ZXQ{index}QXZ", candidate)
     expected = [f"ZXQ{i}QXZ" for i in range(len(originals))]
     if TOKEN.findall(candidate) != expected:
         return None
