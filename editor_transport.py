@@ -4,13 +4,16 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import threading
 import uuid
 
-from PySide6.QtCore import QObject, QTimer
+from PySide6.QtCore import QObject, QTimer, Signal
 from PySide6.QtNetwork import QLocalServer
 
 
 class PromptPipe(QObject):
+    flushed = Signal()
+
     def __init__(self, prompt, parent=None):
         super().__init__(parent)
         self.payload = prompt.encode("utf-8")
@@ -21,6 +24,7 @@ class PromptPipe(QObject):
         self.timer = QTimer(self)
         self.timer.setInterval(20)
         self.timer.timeout.connect(self.write_fifo)
+        self.flushed.connect(self.close_windows)
         if sys.platform == "win32":
             self.server = QLocalServer(self)
             self.server.setSocketOptions(QLocalServer.SocketOption.UserAccessOption)
@@ -39,8 +43,24 @@ class PromptPipe(QObject):
         self.server.close()
         self.socket.write(self.payload)
         self.socket.flush()
-        self.socket.disconnectFromServer()
         self.payload = b""
+        # DisconnectNamedPipe discards unread bytes. Wait for the client to consume them.
+        handle = int(self.socket.socketDescriptor())
+        def drain():
+            import ctypes
+            kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel.FlushFileBuffers.argtypes = [ctypes.c_void_p]
+            kernel.FlushFileBuffers.restype = ctypes.c_int
+            kernel.FlushFileBuffers(handle)
+            try:
+                self.flushed.emit()
+            except RuntimeError:
+                pass  # The request was cancelled and its Qt object already destroyed.
+        threading.Thread(target=drain, name="WhisperEditorPipeFlush", daemon=True).start()
+
+    def close_windows(self):
+        if self.socket:
+            self.socket.disconnectFromServer()
 
     def write_fifo(self):
         try:

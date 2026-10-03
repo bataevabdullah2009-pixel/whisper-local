@@ -17,8 +17,9 @@ class PrivatePromptTransport(unittest.TestCase):
         process = QProcess()
         loop = QEventLoop()
         process.finished.connect(loop.quit)
-        reader = """import hashlib,os,sys
+        reader = """import hashlib,os,sys,time
 fd = os.open(sys.argv[1], os.O_RDONLY | getattr(os, 'O_BINARY', 0))
+time.sleep(.2)  # A slow reader must not lose bytes when the server finishes writing.
 blocks = []
 while True:
     try:
