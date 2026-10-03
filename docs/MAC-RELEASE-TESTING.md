@@ -32,10 +32,10 @@ The publisher must perform these identity and account steps:
    (99 USD, with regional pricing). Organization enrollment has additional verification.
 2. As Account Holder, create a
    [Developer ID Application certificate](https://developer.apple.com/help/account/certificates/create-developer-id-certificates/).
-   Generate the CSR and retain its corresponding private key. A borrowed or dedicated rented
-   Mac can prepare the CSR and
-   [export the signing identity as a password-protected P12](https://developer.apple.com/documentation/Xcode/sharing-your-teams-signing-certificates).
-   Export both certificate and private key; the downloaded `.cer` alone cannot sign packages.
+   Prepare the CSR and protected P12 on Windows using the procedure below, or use Apple's
+   [Keychain/Xcode export procedure](https://developer.apple.com/documentation/Xcode/sharing-your-teams-signing-certificates)
+   if a Mac is already available. Retain the corresponding private key; the downloaded `.cer`
+   alone cannot sign packages.
    The same publisher identity signs ARM64 and Intel. This DMG distribution does not need a
    Developer ID Installer certificate, which is for installer packages.
 3. An App Store Connect administrator creates a permitted **team API key** for notarization,
@@ -57,6 +57,84 @@ Then dispatch the workflow for the reviewed source commit from Windows. Apple do
 [automated notarization and ticket stapling](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution).
 Credentials and successful notarization remain requirements; ad-hoc signatures do not replace
 the publisher identity. The workflow produces candidates and does not publish a release.
+
+## Prepare the CSR and P12 on Windows
+
+Apple's [certificate technical note TN3161](https://developer.apple.com/documentation/technotes/tn3161-inside-code-signing-certificates)
+describes the public-key CSR, matching Apple-issued certificate and PKCS#12 identity, including
+OpenSSL conversion. Together with the [OpenSSL CSR](https://docs.openssl.org/3.5/man1/openssl-req/)
+and [PKCS#12 commands](https://docs.openssl.org/3.5/man1/openssl-pkcs12/), this supports the
+following standards-based Windows procedure. This is an inference from the documented formats;
+Apple's account walkthrough uses Keychain. No publisher keys were generated, certificate issued
+by Apple or P12 imported on a Mac while preparing this guide.
+
+Use an interactive PowerShell terminal as the owner. Git for Windows can provide OpenSSL at the
+path shown below; confirm that it exists and use a trusted OpenSSL 3 installation. Choose a fresh
+private folder outside the repository, protect it with your Windows account permissions and keep
+an encrypted backup of the key. Use a new request folder name for another attempt. Run each block
+separately and stop on any exception or nonzero exit; do not continue with partial output.
+
+```powershell
+$credentialOpenSsl = 'C:\Program Files\Git\usr\bin\openssl.exe'
+$credentialDirectory = Join-Path $env:LOCALAPPDATA 'WhisperLocal-Credentials\DeveloperID-request-01'
+& {
+    if (-not (Test-Path -LiteralPath $credentialOpenSsl -PathType Leaf)) { throw 'OpenSSL not found.' }
+    if (Test-Path -LiteralPath $credentialDirectory) { throw 'Choose a new request folder; nothing is overwritten.' }
+    New-Item -ItemType Directory -Path $credentialDirectory -ErrorAction Stop | Out-Null
+    Push-Location -LiteralPath $credentialDirectory -ErrorAction Stop
+    try {
+        & $credentialOpenSsl req -new -newkey rsa:2048 -sha256 -keyout developer-id-private.pem -out developer-id.certSigningRequest
+        if ($LASTEXITCODE -ne 0) { throw 'Key/CSR creation failed; stop here.' }
+        & $credentialOpenSsl req -in developer-id.certSigningRequest -verify -noout
+        if ($LASTEXITCODE -ne 0) { throw 'CSR verification failed; stop here.' }
+    } finally { Pop-Location }
+}
+```
+
+OpenSSL prompts for a private-key encryption password and the request identity fields. Supply
+your own identity details and retain the password. The command creates an RSA-2048 key and a
+SHA-256 PKCS#10 request; the OpenSSL 3 default encrypts the key. Do not add `-nodes`/`-noenc`
+or place passwords in command arguments, environment variables, chat or terminal recordings.
+CSR verification checks the request's signature; it does not grant a public certificate.
+
+As Account Holder, use Apple's website: Certificates, Identifiers & Profiles → Certificates →
+add → **Developer ID Application**. Upload only `developer-id.certSigningRequest`, never the
+private key or its password. Download the actual Apple-issued `.cer` and copy it to the request
+folder as `developerID_application.cer`. Apple enrollment, identity approval and issuance remain
+owner actions. A locally self-signed certificate cannot replace this step.
+
+Then convert Apple's DER certificate and combine it with the retained encrypted key:
+
+```powershell
+& {
+    Push-Location -LiteralPath $credentialDirectory -ErrorAction Stop
+    try {
+        foreach ($credentialOutput in @('developerID_application.pem', 'developer-id.p12')) {
+            if (Test-Path -LiteralPath $credentialOutput) { throw 'Output already exists; stop without overwriting it.' }
+        }
+        & $credentialOpenSsl x509 -inform DER -in developerID_application.cer -out developerID_application.pem
+        if ($LASTEXITCODE -ne 0) { throw 'Certificate conversion failed; stop here.' }
+        & $credentialOpenSsl pkcs12 -export -inkey developer-id-private.pem -in developerID_application.pem -out developer-id.p12 -name 'Developer ID Application' -iter 100000
+        if ($LASTEXITCODE -ne 0) { throw 'P12 export failed; stop here.' }
+        & $credentialOpenSsl pkcs12 -in developer-id.p12 -info -noout
+        if ($LASTEXITCODE -ne 0) { throw 'P12 inspection failed; stop here.' }
+    } finally { Pop-Location }
+}
+```
+
+Export prompts for the private-key password and a new P12 password; use the latter for
+`MACOS_CERTIFICATE_PASSWORD`. OpenSSL checks that the certificate matches the private key at
+export. `-info -noout` inspects the P12 without printing its key or certificate contents. These
+checks prove local consistency, not genuine Apple issuance, trusted-chain validation or Mac import.
+
+The example retains OpenSSL 3's AES-256-CBC/PBKDF2 encryption and SHA-256 integrity MAC, with
+100,000 iterations. This format's import into the actual Mac signing runner remains unverified.
+Do not silently switch to `-legacy` or disable encryption/MAC checks after an import failure.
+The real signed-candidate workflow must import this P12 and find a valid Apple Developer ID
+Application identity before signing can pass. The P12 then supplies
+`MACOS_CERTIFICATE_P12_BASE64`; keep that base64 and both passwords out of logs and artifacts.
+No borrowed/rented Mac is required for this local credential preparation, while signing,
+notarization and physical tests still have their separate requirements above and below.
 
 ## Arrange two physical testers
 
@@ -103,9 +181,9 @@ audio over the network and cannot satisfy this app's offline-recording requireme
 [MacinCloud Dedicated](https://www.macincloud.com/pages/dedicated.html) advertises Apple Silicon
 and Intel plans with administrator access; availability and pricing must be confirmed before
 purchase. Its [Windows RDP instructions](https://support.macincloud.com/support/solutions/articles/8000079292-how-to-connect-to-macincloud-dedicated-server-using-rdp)
-provide a remote desktop path. A dedicated rented Mac can prepare the CSR/P12 and support
-GUI, permission-dialog and paste checks in a remote session. Describe those results with their
-actual remote input/environment scope.
+provide a remote desktop path. A dedicated rented Mac can support GUI, permission-dialog and
+paste checks in a remote session. Describe those results with their actual remote
+input/environment scope. Credential preparation can use the Windows procedure above.
 
 The vendor's [audio documentation](https://support.macincloud.com/support/solutions/articles/8000057678-is-audio-supported-with-macincloud-servers-)
 documents sound playback, but does not establish a directly attached microphone, technician
