@@ -15,6 +15,8 @@ def main():
     os.environ.update(HF_HUB_DISABLE_TELEMETRY="1", DO_NOT_TRACK="1")
     kind = sys.argv.pop(1)
     if kind == "asr":
+        if "--startup-progress" in sys.argv:
+            emit({"type": "startup_progress", "stage": "dispatch"})
         from model_manager import model_backend
         index = sys.argv.index("--model")
         if model_backend(sys.argv[index + 1]) == "whispercpp":
