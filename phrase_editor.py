@@ -76,7 +76,8 @@ def accept_edit(source, candidate, originals):
     for index, original in enumerate(originals):
         if "\r" in original or "\n" in original:
             marker = re.escape(f"ZXQ{index}QXZ")
-            candidate = re.sub(r"[ \t]*" + marker + r"[ \t]*", f"ZXQ{index}QXZ", candidate)
+            separator = re.search(r"[ \t]*" + marker + r"[ \t]*", source).group()
+            candidate = re.sub(r"[ \t]*" + marker + r"[ \t]*", lambda _match: separator, candidate)
     expected = [f"ZXQ{i}QXZ" for i in range(len(originals))]
     if TOKEN.findall(candidate) != expected:
         return None
