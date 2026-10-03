@@ -76,9 +76,15 @@ class Probe(threading.Thread):
 
 
 class Worker:
-    def __init__(self, model, device, compute, helper=None):
+    STARTUP_STAGES = {"dispatch", "import_vad", "validate_model", "create_context", "warmup_cpp", "warmup_vad"}
+
+    def __init__(self, model, device, compute, helper=None, *, startup_progress=False):
         command = ([str(helper.resolve()), "asr"] if helper else worker_command("asr"))
         command += ["--model", str(model), "--device", device, "--compute-type", compute]
+        self.startup_progress = startup_progress
+        self.startup_stage = None
+        if startup_progress:
+            command += ["--startup-progress"]
         self.started = time.monotonic()
         self.process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL, text=True, encoding="utf-8",
@@ -94,16 +100,35 @@ class Worker:
         self.events.put(None)
 
     def receive(self):
-        try:
-            line = self.events.get(timeout=300)
-        except Empty:
-            raise RuntimeError("Worker response timed out") from None
-        if line is None:
-            raise RuntimeError("Worker exited before responding")
-        event = json.loads(line)
-        if event.get("type") in ("fatal", "error"):
-            raise RuntimeError("Worker failed; no audio or transcript has been logged")
-        return event
+        deadline = time.monotonic() + 300
+        while True:
+            try:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise Empty
+                line = self.events.get(timeout=remaining)
+            except Empty:
+                stage = f" at startup stage {self.startup_stage}" if self.startup_stage else ""
+                raise RuntimeError("Worker response timed out" + stage) from None
+            if line is None:
+                raise RuntimeError("Worker exited before responding")
+            event = json.loads(line)
+            if event.get("type") == "startup_progress" and self.startup_progress:
+                stage = event.get("stage")
+                if not isinstance(stage, str) or stage not in self.STARTUP_STAGES:
+                    raise RuntimeError("Invalid worker startup diagnostic")
+                self.startup_stage = stage
+                # Never print arbitrary worker payloads, model paths, audio or text.
+                report = {"startup_stage": stage, "seconds": round(time.monotonic() - self.started, 2)}
+                if type(event.get("gpu")) is bool:
+                    report["gpu"] = event["gpu"]
+                print(json.dumps(report), flush=True)
+                continue
+            if event.get("type") in ("fatal", "error"):
+                raise RuntimeError("Worker failed; no audio or transcript has been logged")
+            if event.get("type") == "ready":
+                self.startup_stage = None
+            return event
 
     def transcribe(self, pcm, language, request_id):
         self.process.stdin.write(json.dumps({"type": "transcribe", "id": request_id,

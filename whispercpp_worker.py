@@ -12,15 +12,19 @@ from model_manager import validate_model
 from whispercpp_backend import WhisperCpp
 
 
-def load_cpp_model(path, preference, threads, factory=WhisperCpp):
+def load_cpp_model(path, preference, threads, factory=WhisperCpp, progress=None):
     fallback = False
     gpu_requested = preference == "metal" or (preference == "auto" and platform.machine() == "arm64")
     candidates = (True, False) if gpu_requested and sys.platform == "darwin" else (False,)
     for gpu in candidates:
         model = None
         try:
+            if progress:
+                progress("create_context", gpu)
             model = factory(path, gpu, threads)
             # Probe real encoder/decoder kernels before declaring Metal readiness.
+            if progress:
+                progress("warmup_cpp", gpu)
             model.transcribe(np.zeros(16000, dtype=np.float32), "ru")
             device = "metal" if model.metal else "cpu"
             return model, device, model.compute_type, fallback or (gpu and device != "metal")
@@ -41,6 +45,7 @@ def main():
     parser.add_argument("--model", required=True)
     parser.add_argument("--device", choices=("auto", "cpu", "metal"), default="auto")
     parser.add_argument("--compute-type", default="auto") # file quantization defines whisper.cpp precision
+    parser.add_argument("--startup-progress", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
     os.environ.update(HF_HUB_OFFLINE="1", HF_HUB_DISABLE_TELEMETRY="1", DO_NOT_TRACK="1")
     def offline(event, _arguments):
@@ -49,11 +54,20 @@ def main():
     sys.addaudithook(offline)
     started = time.monotonic()
     model = None
+    def progress(stage, gpu=None):
+        if args.startup_progress:
+            event = {"type": "startup_progress", "stage": stage}
+            if gpu is not None:
+                event["gpu"] = gpu
+            emit(event)
     try:
+        progress("import_vad")
         from faster_whisper.vad import get_speech_timestamps, VadOptions
+        progress("validate_model")
         validate_model(args.model)
         model, device, compute, fallback = load_cpp_model(args.model, args.device,
-            max(1, min(8, (os.cpu_count() or 2) // 2)))
+            max(1, min(8, (os.cpu_count() or 2) // 2)), progress=progress)
+        progress("warmup_vad")
         get_speech_timestamps(np.zeros(16000, dtype=np.float32), VadOptions())
         emit({"type": "ready", "backend": "whispercpp", "device": device, "compute_type": compute,
             "fallback": fallback, "load_seconds": round(time.monotonic() - started, 2)})

@@ -70,6 +70,21 @@ the CPU selection remains available. If a hosted runner exposes no Metal
 GPU, the report says `unavailable_on_runner` and checks CPU fallback; that is not Metal execution
 evidence and does not support a speedup claim.
 
+## Startup diagnostics in the fixture check
+
+`smoke_whispercpp.py` requests optional `--startup-progress` events from the helper.
+It prints only a fixed stage name, elapsed time and a GPU-request boolean while
+waiting for readiness, plus the requested CPU/Metal mode. The stages distinguish
+dispatch, VAD import, model validation, native context creation, native warmup and
+VAD warmup. Arbitrary worker fields, paths, audio and decoded text are never printed.
+Normal application workers do not request these events. The readiness deadline is
+still 300 seconds in total; progress events cannot extend it. A timeout names the
+last known safe stage. A readiness event clears that startup stage so a later
+inference timeout is not mislabeled as a startup failure.
+
+This diagnostic identifies where a hosted check stops. It does not itself fix the
+underlying timeout or prove physical-Mac behavior.
+
 ## Physical Mac gates
 
 Code/unit tests, native compilation, package launch and fixture recognition are distinct from
