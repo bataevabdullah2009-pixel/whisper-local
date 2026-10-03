@@ -1,8 +1,10 @@
 # Permission request for the retained Wispr Flow cues
 
 Prepared on 2026-10-03. **Draft only: not sent; permission not received.**
-The owner has confirmed that the current Wispr Flow sounds should remain. Their
-files, the default `flow` choice, Console/Air and the recording capsule are unchanged.
+The owner has confirmed that the current Wispr Flow sounds should remain and that
+distribution should proceed under their own decision without waiting for vendor permission.
+This draft is an optional request, not a release prerequisite under that decision.
+The files, default `flow` choice, Console/Air and recording capsule are unchanged.
 
 ## Recipient and sending
 
@@ -66,9 +68,12 @@ Whisper Local maintainer
 ## Recording the response
 
 Sending the request, acknowledging receipt or receiving an automated reply does not
-pass the release gate. Review the actual grant, its issuer and its scope against
+verify permission. Review any actual grant, its issuer and its scope against
 both bundled files and the intended distribution. Record a non-sensitive evidence
 reference in `sound_redistribution.permission_reference` only after permission is
 verified; use `passed` only when it covers the shipped assets. Until then, retain
-`status: unknown` and the empty permission reference. See
+`status: unknown` and the empty permission reference. The
+[owner distribution decision](sound-distribution-owner-decision-2026-10-03.json)
+is recorded separately and can satisfy the distribution policy without representing
+it as vendor permission. See
 [sound provenance](../assets/sounds/SOURCES.md) and [release gates](RELEASE.md).

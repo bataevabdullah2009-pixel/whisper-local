@@ -20,7 +20,10 @@ files below were separately regenerated from our synthesis code and matched the
 bundled files byte for byte.
 
 The owner confirmed on 2026-10-03 that the current Wispr Flow cues should remain.
-Files and the default choice are preserved. A [permission request draft](../../docs/SOUND-PERMISSION-REQUEST.md)
+Files and the default choice are preserved. The owner also approved distribution
+without waiting for separate vendor permission; this is recorded as an
+[owner decision](../../docs/sound-distribution-owner-decision-2026-10-03.json), not a
+license grant. An optional [permission request draft](../../docs/SOUND-PERMISSION-REQUEST.md)
 has been prepared; it has not been sent and no permission has been received.
 
 Visual reference for the custom Qt painting:

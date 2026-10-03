@@ -26,6 +26,26 @@ PLATFORM_CHECKS = {
 }
 
 
+def sound_distribution_approved(record: object) -> bool:
+    """Accept verified permission or an explicit owner distribution decision.
+
+    An owner decision does not change an unknown rights status into permission.
+    """
+    if not isinstance(record, dict):
+        return False
+    status = record.get("status")
+    reference = record.get("permission_reference")
+    if status == "passed":
+        return isinstance(reference, str) and bool(reference.strip())
+    if status != "unknown" or reference not in (None, ""):
+        return False
+    decision = record.get("owner_distribution_decision")
+    return (isinstance(decision, dict)
+            and decision.get("approve_unverified_redistribution") is True
+            and all(isinstance(decision.get(field), str) and decision[field].strip()
+                    for field in ("decided_at", "authority", "decision", "scope")))
+
+
 def readiness_errors(evidence: dict, artifact_dir: Path | None = None) -> list[str]:
     errors: list[str] = []
     if evidence.get("schema_version") != 1:
@@ -33,10 +53,8 @@ def readiness_errors(evidence: dict, artifact_dir: Path | None = None) -> list[s
     commit = evidence.get("source_commit", "")
     if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}", commit):
         errors.append("A full source commit SHA is required")
-    license_evidence = evidence.get("sound_redistribution", {})
-    if (not isinstance(license_evidence, dict) or license_evidence.get("status") != "passed"
-            or not license_evidence.get("permission_reference")):
-        errors.append("Sound redistribution permission remains unverified")
+    if not sound_distribution_approved(evidence.get("sound_redistribution")):
+        errors.append("Sound distribution requires verified permission or an explicit owner decision")
     targets = evidence.get("targets", {})
     if not isinstance(targets, dict):
         return errors + ["Target evidence must be an object"]
@@ -98,7 +116,7 @@ def main() -> int:
         for error in errors:
             print(f"- {error}")
         return 1
-    print("Recorded evidence is complete and candidate hashes match. Owner review is required before publication.")
+    print("Release policy checks passed and candidate hashes match. Owner review is required before publication.")
     return 0
 
 

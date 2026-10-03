@@ -3,7 +3,14 @@
   "source_commit": "",
   "sound_redistribution": {
     "status": "unknown",
-    "permission_reference": ""
+    "permission_reference": "",
+    "owner_distribution_decision": {
+      "approve_unverified_redistribution": false,
+      "decided_at": "",
+      "authority": "",
+      "decision": "",
+      "scope": ""
+    }
   },
   "targets": {
     "Windows-x64": {

@@ -211,7 +211,8 @@ python scripts/release_readiness.py owner-release-evidence.json --artifact-dir d
 
 The [readiness validator](../scripts/release_readiness.py) checks all three hashes and source
 bindings, verified signatures/timestamps, accepted/stapled Mac notarization, all recorded
-physical gates and sound redistribution evidence. It returns nonzero while any requirement
+physical gates and sound distribution approval (verified permission or a documented owner
+decision to distribute with permission unverified). It returns nonzero while any requirement
 is incomplete. Review the actual evidence before publication; the validator cannot observe
 the tester's hardware or manufacture an outcome. See [RELEASE.md](RELEASE.md) for the separate
-sound permission and Windows signing requirements.
+sound distribution policy and Windows signing requirements.
