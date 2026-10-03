@@ -68,6 +68,7 @@ class EditorContracts(unittest.TestCase):
         self.assertIn("--log-verbosity", command)
         self.assertNotIn("--log-file", command)
         self.assertNotIn("--hf-repo", command)
+        self.assertNotIn("--rpc", command)
         self.assertNotIn("--prompt-cache", command)
         self.assertIn("0", command[command.index("--gpu-layers") + 1:command.index("--gpu-layers") + 2])
 

@@ -28,8 +28,10 @@ Windows named pipe or a mode-0600 Unix FIFO inside a private temporary directory
 never argv, regular files, network services or a prompt cache. The CLI receives only
 the pipe name via `--file`; bytes stay in pipe/worker memory. Prompt display and debug
 logging are disabled; stderr is drained, not retained. External `LLAMA_*` and `GGML_*` flags
-are removed. Only the CLI and local libraries are bundled; server executables and the
-RPC backend are excluded. The process exits after the phrase, releasing model and
+are removed. Only the CLI and required libraries are bundled; server executables are
+excluded. The Mac archive links an RPC library, so that dependency is retained, but
+no RPC endpoint/options are configured and all inference is explicitly on the CPU.
+The optional Windows RPC library is excluded. The process exits after the phrase, releasing model and
 context memory. Cancellation, sleep and shutdown kill it and clear Python buffers.
 
 Model download is the only runtime network operation. Recognition and editing never

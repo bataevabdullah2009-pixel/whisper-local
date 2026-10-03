@@ -33,7 +33,7 @@ def main():
     with zipfile.ZipFile(archive) as source:
         for info in source.infolist():
             name = Path(info.filename).name
-            if "rpc" in name.lower():
+            if "rpc" in name.lower() and sys.platform != "darwin":
                 continue
             if name not in ("llama-cli", "llama-cli.exe") and not name.endswith((".dll", ".dylib", ".metallib")):
                 continue

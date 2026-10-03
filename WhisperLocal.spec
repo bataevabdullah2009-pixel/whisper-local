@@ -24,7 +24,8 @@ editor_cli = editor_runtime / ("llama-cli.exe" if sys.platform == "win32" else "
 if not editor_cli.is_file():
     raise RuntimeError("Run scripts/prepare_editor_runtime.py before packaging")
 binaries += [(str(path), "native/editor") for path in editor_runtime.iterdir()
-             if "rpc" not in path.name.lower() and (path.name in ("llama-cli.exe", "llama-cli") or path.suffix in (".dll", ".dylib"))]
+             if (sys.platform == "darwin" or "rpc" not in path.name.lower())
+             and (path.name in ("llama-cli.exe", "llama-cli") or path.suffix in (".dll", ".dylib"))]
 data += [(str(path), "native/editor") for path in editor_runtime.iterdir()
          if path.suffix in (".txt", ".json", ".metallib")]
 if sys.platform == "darwin":
