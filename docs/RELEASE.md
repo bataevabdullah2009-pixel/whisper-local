@@ -161,6 +161,10 @@ keeping the existing cues for distribution; the current record stores that owner
 [Sound provenance](../assets/sounds/SOURCES.md) and the owner decision do not establish permission
 from the sound rights holders. The redistribution permission gate remains **unknown** with an
 empty permission reference until supporting permission or another verified resolution is recorded.
+The owner reconfirmed keeping Wispr Flow on 2026-10-03. The
+[permission request](SOUND-PERMISSION-REQUEST.md) identifies both retained files,
+the requested repository/Windows/macOS scope and an official contact. It is an
+unsent draft, not redistribution evidence.
 
 Copy [release-evidence.template.json](release-evidence.template.json) to an owner evidence file.
 Insert the three exact signed CI manifests and fill the physical records only after real tests.
