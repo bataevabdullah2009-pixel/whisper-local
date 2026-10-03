@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from scripts.macos_signing import accepted_submission, prepare, run, sign_app
 from scripts.release_manifest import TARGET_FILES, digest
-from scripts.release_readiness import COMMON_CHECKS, PLATFORM_CHECKS, readiness_errors
+from scripts.release_readiness import COMMON_CHECKS, PLATFORM_CHECKS, readiness_errors, sound_distribution_approved
 
 
 class ReleaseGateTests(unittest.TestCase):
@@ -49,12 +49,50 @@ class ReleaseGateTests(unittest.TestCase):
             check["status"] = "unknown"
             self.assertTrue(any("paste_clipboard" in error for error in readiness_errors(evidence, directory)))
 
-    def test_pending_sound_permission_blocks_ready_signed_candidates(self):
+    def test_pending_sound_permission_without_owner_decision_blocks_candidates(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             evidence = self.complete_evidence(directory)
             evidence["sound_redistribution"]["status"] = "unknown"
             self.assertTrue(any("Sound" in error for error in readiness_errors(evidence, directory)))
+
+    def test_owner_decision_allows_unknown_rights_without_claiming_permission(self):
+        root = Path(__file__).resolve().parents[1]
+        decision = json.loads((root / "docs/sound-distribution-owner-decision-2026-10-03.json").read_text())
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            evidence = self.complete_evidence(directory)
+            evidence.update(decision)
+            before = copy.deepcopy(evidence)
+            self.assertEqual(readiness_errors(evidence, directory), [])
+            self.assertEqual(evidence, before)
+            self.assertEqual(evidence["sound_redistribution"]["status"], "unknown")
+            self.assertEqual(evidence["sound_redistribution"]["permission_reference"], "")
+            evidence["targets"]["macOS-Intel"]["physical"]["checks"]["offline_dictation"]["status"] = "unknown"
+            self.assertTrue(any("offline_dictation" in error for error in readiness_errors(evidence, directory)))
+            evidence["targets"]["macOS-Apple-Silicon"]["signed_manifest"]["notarization"] = "unknown"
+            self.assertTrue(any("notarization" in error for error in readiness_errors(evidence, directory)))
+
+    def test_owner_decision_must_be_explicit_and_documented(self):
+        root = Path(__file__).resolve().parents[1]
+        sound = json.loads((root / "docs/sound-distribution-owner-decision-2026-10-03.json").read_text())["sound_redistribution"]
+        for field in ("approve_unverified_redistribution", "decided_at", "authority", "decision", "scope"):
+            for value in (None, False, "", "   "):
+                with self.subTest(field=field, value=value):
+                    incomplete = copy.deepcopy(sound)
+                    incomplete["owner_distribution_decision"][field] = value
+                    self.assertFalse(sound_distribution_approved(incomplete))
+        sound["owner_distribution_decision"]["approve_unverified_redistribution"] = "true"
+        self.assertFalse(sound_distribution_approved(sound))
+
+    def test_owner_decision_cannot_validate_false_permission_claims(self):
+        root = Path(__file__).resolve().parents[1]
+        sound = json.loads((root / "docs/sound-distribution-owner-decision-2026-10-03.json").read_text())["sound_redistribution"]
+        for status, reference in (("passed", ""), ("passed", "   "), ("passed", True),
+                                  ("unknown", "unverified reference"), ("failed", "")):
+            with self.subTest(status=status, reference=reference):
+                sound.update(status=status, permission_reference=reference)
+                self.assertFalse(sound_distribution_approved(sound))
 
     def test_wrong_source_and_wrong_tested_artifact_are_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:

@@ -13,6 +13,19 @@ These are Wispr Flow assets, not original compositions by this project. They wer
 
 The downloaded files are 48 kHz, stereo, 24-bit PCM. Bundled files are converted to 16-bit PCM for Windows playback; sample rate, stereo channels, frame count and timing are unchanged. Start is 12,170 frames (0.254 s); stop is 14,532 frames (0.303 s). The application only applies the user's volume gain. Its completion cue plays after successful paste.
 
+Verified again on 2026-10-03: converting each official source's signed 24-bit PCM
+samples to 16-bit PCM reproduces the bundled audio payload exactly. This conversion
+does not make the two Wispr Flow cues original compositions. The four Console/Air
+files below were separately regenerated from our synthesis code and matched the
+bundled files byte for byte.
+
+The owner confirmed on 2026-10-03 that the current Wispr Flow cues should remain.
+Files and the default choice are preserved. The owner also approved distribution
+without waiting for separate vendor permission; this is recorded as an
+[owner decision](../../docs/sound-distribution-owner-decision-2026-10-03.json), not a
+license grant. An optional [permission request draft](../../docs/SOUND-PERMISSION-REQUEST.md)
+has been prepared; it has not been sent and no permission has been received.
+
 Visual reference for the custom Qt painting:
 https://cdn.prod.website-files.com/682f84b3838c89f8ff7667db/6a4f5ff3f6da81ba30f2416b_Flowbar.svg
 (linked by the Wispr Flow home page on the same date). 97 × 28 viewBox, ten bars, gray cancel circle, white confirm circle. The application uses its own painting code, not the vendor's app or recording service.

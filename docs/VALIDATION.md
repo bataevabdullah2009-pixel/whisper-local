@@ -42,6 +42,9 @@ unsigned or ad-hoc packaged smoke and hosted Windows installation/uninstallation
 checks separate from full release approval: physical Windows/Mac workflows, public signing,
 notarization and sound redistribution permission remain unknown. The
 [historical record](release-readiness-2026-10-01.json) preserves the earlier blocked CI run.
+The later [2026-10-03 owner sound decision](sound-distribution-owner-decision-2026-10-03.json)
+allows distribution with rights status still unknown; the validator accepts that explicit
+choice separately from verified permission. It does not fill the missing signing or physical evidence.
 The [Mac tester guide](MAC-RELEASE-TESTING.md) describes collecting real Apple Silicon and Intel
 evidence without treating hosted CI as a physical check.
 Durable download behavior and its code checks are in [DOWNLOADS.md](DOWNLOADS.md).

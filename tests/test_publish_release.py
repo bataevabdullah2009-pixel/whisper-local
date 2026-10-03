@@ -256,7 +256,7 @@ class PublicationTests(unittest.TestCase):
                 setattr(fixture, field, True)
                 self.assert_no_mutation(fixture)
 
-    def test_unknown_physical_and_sound_permission_never_mutate(self):
+    def test_unknown_physical_and_unapproved_sound_distribution_never_mutate(self):
         for gate in ("physical", "sound"):
             with self.subTest(gate=gate):
                 fixture = PublicationFixture()
@@ -265,6 +265,18 @@ class PublicationTests(unittest.TestCase):
                 else:
                     fixture.evidence["sound_redistribution"]["status"] = "unknown"
                 self.assert_no_mutation(fixture)
+
+    def test_owner_sound_decision_is_accepted_by_publication_preflight(self):
+        fixture = PublicationFixture()
+        root = Path(__file__).resolve().parents[1]
+        owner = json.loads((root / "docs/sound-distribution-owner-decision-2026-10-03.json").read_text())
+        fixture.evidence.update(owner)
+        status, output = fixture.execute(check=True)
+        self.assertEqual(status, 0, output)
+        self.assertEqual(self.mutation_commands(fixture), [])
+        self.assertEqual(fixture.evidence["sound_redistribution"]["status"], "unknown")
+        fixture.evidence["targets"]["macOS-Intel"]["physical"]["checks"]["offline_dictation"]["status"] = "unknown"
+        self.assert_no_mutation(fixture)
 
     def test_unmerged_source_and_existing_tag_or_draft_are_rejected(self):
         for field in ("ancestor", "existing_tag", "existing_release"):

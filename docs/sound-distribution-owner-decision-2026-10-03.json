@@ -1,0 +1,13 @@
+{
+  "sound_redistribution": {
+    "status": "unknown",
+    "permission_reference": "",
+    "owner_distribution_decision": {
+      "approve_unverified_redistribution": true,
+      "decided_at": "2026-10-03",
+      "authority": "Direct project-owner instructions in this Codex chat",
+      "decision": "Retain and redistribute the existing Wispr Flow cues without waiting for a separate vendor permission response. The owner accepts responsibility for that distribution decision.",
+      "scope": "The existing dictation-start.wav and dictation-stop.wav in the public repository and planned Windows EXE/macOS Apple Silicon and Intel packages. This is the owner's distribution decision, not a grant from Wispr or proof of sound rights. Permission status remains unknown."
+    }
+  }
+}

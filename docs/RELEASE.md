@@ -157,10 +157,18 @@ permissions, offline Gatekeeper checks and recording results for both native Mac
 Record outcome and non-sensitive diagnostic metadata. Do not attach private microphone audio,
 dictation text or clipboard contents. A blocked/skipped scenario stays `unknown` or `failed`.
 The existing sounds and capsule are preserved. On 2026-10-02 the owner explicitly instructed
-keeping the existing cues for distribution; the current record stores that owner decision separately.
-[Sound provenance](../assets/sounds/SOURCES.md) and the owner decision do not establish permission
-from the sound rights holders. The redistribution permission gate remains **unknown** with an
-empty permission reference until supporting permission or another verified resolution is recorded.
+keeping the existing cues for distribution. On 2026-10-03 the owner reconfirmed this choice
+and accepted responsibility for distributing them without waiting for separate vendor permission.
+The [recorded owner decision](sound-distribution-owner-decision-2026-10-03.json) can be copied
+into the release evidence's `sound_redistribution` section. The validator accepts either
+verified permission (`status: passed` with a nonempty permission reference) or
+`status: unknown` with an explicit `approve_unverified_redistribution: true` owner decision
+and documented date, authority, decision and scope. The blank template defaults to false.
+The latter route approves distribution under the owner's policy; it does not grant sound rights
+or change the permission status to passed. [Sound provenance](../assets/sounds/SOURCES.md)
+continues to identify the original vendor assets. An optional
+[permission request](SOUND-PERMISSION-REQUEST.md) is prepared but unsent; a reply is not required
+by the owner's chosen distribution policy.
 
 Copy [release-evidence.template.json](release-evidence.template.json) to an owner evidence file.
 Insert the three exact signed CI manifests and fill the physical records only after real tests.
@@ -171,7 +179,7 @@ python scripts/release_readiness.py owner-release-evidence.json --artifact-dir d
 ```
 
 It exits nonzero for absent public-signature/accepted-notary manifests, wrong hashes/commit,
-missing physical evidence, or unverified sound redistribution. Completed evidence is still
+missing physical evidence, or sound distribution without permission or an explicit owner decision. Completed evidence is still
 subject to owner review before publication. No current record passes, and no release is published.
 
 ## Publish a verified signed candidate
@@ -186,7 +194,8 @@ Before dispatch, commit completed owner evidence as `docs/releases/<tag>.json` a
 as `docs/releases/<tag>.md` through a reviewed PR into `main`. Copy the actual CI manifests
 unchanged into the evidence. The candidate source commit must be an ancestor of the publication
 commit: evidence can be committed after physical testing without rebuilding the tested packages.
-All physical and sound permission gates in the existing readiness validator remain mandatory.
+All signature, notarization and physical gates remain mandatory. Sound distribution requires
+either verified permission or the documented owner decision described above.
 The repository default branch must still be `main`, and the candidate's entire `.github/workflows`
 tree must match current remote `main`. A later PR containing only evidence or release notes is
 compatible. If workflows change, build a new signed candidate and record proof for those new
