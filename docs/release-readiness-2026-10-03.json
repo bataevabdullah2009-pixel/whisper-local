@@ -1,0 +1,273 @@
+{
+  "schema_version": 1,
+  "source_commit": "852e303b0714eba14e3133251c8ddeb6e91775f3",
+  "sound_redistribution": {
+    "status": "unknown",
+    "permission_reference": "",
+    "owner_distribution_decision": {
+      "approve_unverified_redistribution": true,
+      "decided_at": "2026-10-03",
+      "authority": "Direct project-owner instructions in this Codex chat",
+      "decision": "Retain and redistribute the existing Wispr Flow cues without waiting for a separate vendor permission response. The owner accepts responsibility for that distribution decision.",
+      "scope": "The existing dictation-start.wav and dictation-stop.wav in the public repository and planned Windows EXE/macOS Apple Silicon and Intel packages. This is the owner's distribution decision, not a grant from Wispr or proof of sound rights. Permission status remains unknown."
+    }
+  },
+  "targets": {
+    "Windows-x64": {
+      "signed_manifest": {},
+      "physical": {
+        "artifact_sha256": "",
+        "source_commit": "",
+        "tester": "",
+        "tested_at": "",
+        "os_version": "",
+        "hardware": "",
+        "checks": {
+          "clean_install_first_dictation_uninstall": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "microphone_and_permissions": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "hotkeys_hold_toggle_escape": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "paste_clipboard_focus_targets": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "microphone_disconnect_sleep_wake": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "offline_dictation": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "download_interruption_restart_disk_full": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "model_idle_unload_reload": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "dictionary_and_cleanup": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "capsule_and_sound_choices": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "cpu_and_nvidia_fallback": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "trusted_publisher_install_uninstall": {
+            "status": "unknown",
+            "evidence": ""
+          }
+        }
+      }
+    },
+    "macOS-Apple-Silicon": {
+      "signed_manifest": {},
+      "physical": {
+        "artifact_sha256": "",
+        "source_commit": "",
+        "tester": "",
+        "tested_at": "",
+        "os_version": "",
+        "hardware": "",
+        "checks": {
+          "clean_install_first_dictation_uninstall": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "microphone_and_permissions": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "hotkeys_hold_toggle_escape": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "paste_clipboard_focus_targets": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "microphone_disconnect_sleep_wake": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "offline_dictation": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "download_interruption_restart_disk_full": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "model_idle_unload_reload": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "dictionary_and_cleanup": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "capsule_and_sound_choices": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "gatekeeper_download_quarantine_offline": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "metal_cpu_fallback": {
+            "status": "unknown",
+            "evidence": ""
+          }
+        }
+      }
+    },
+    "macOS-Intel": {
+      "signed_manifest": {},
+      "physical": {
+        "artifact_sha256": "",
+        "source_commit": "",
+        "tester": "",
+        "tested_at": "",
+        "os_version": "",
+        "hardware": "",
+        "checks": {
+          "clean_install_first_dictation_uninstall": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "microphone_and_permissions": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "hotkeys_hold_toggle_escape": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "paste_clipboard_focus_targets": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "microphone_disconnect_sleep_wake": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "offline_dictation": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "download_interruption_restart_disk_full": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "model_idle_unload_reload": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "dictionary_and_cleanup": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "capsule_and_sound_choices": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "gatekeeper_download_quarantine_offline": {
+            "status": "unknown",
+            "evidence": ""
+          },
+          "metal_cpu_fallback": {
+            "status": "unknown",
+            "evidence": ""
+          }
+        }
+      }
+    }
+  },
+  "observed_at": "2026-10-03T04:50:53Z",
+  "audit_status": "incomplete_release_evidence",
+  "github_observations": {
+    "repository_secret_count": 0,
+    "release_signing_environment_secret_count": 0,
+    "signed_candidate_workflow_run_count": 0,
+    "publication_workflow_run_count": 0,
+    "github_release_count": 0,
+    "audited_main_commit": "852e303b0714eba14e3133251c8ddeb6e91775f3",
+    "verified_ci_head": "ac9c471c1006fbd03449edf93a7840b3c7e884ef",
+    "audited_main_tree_matches_verified_ci_head": true,
+    "references": [
+      "https://api.github.com/repos/bataevabdullah2009-pixel/whisper-local/branches/main",
+      "https://api.github.com/repos/bataevabdullah2009-pixel/whisper-local/actions/workflows/release.yml/runs",
+      "https://api.github.com/repos/bataevabdullah2009-pixel/whisper-local/actions/workflows/publish.yml/runs",
+      "https://api.github.com/repos/bataevabdullah2009-pixel/whisper-local/releases",
+      "https://github.com/bataevabdullah2009-pixel/whisper-local/settings/secrets/actions",
+      "https://github.com/bataevabdullah2009-pixel/whisper-local/settings/environments"
+    ]
+  },
+  "development_observations": [
+    {
+      "check": "main-integration",
+      "status": "passed",
+      "scope": "Release preparation and owner sound policy are integrated in main at the audited source SHA. Its Git tree exactly matches the verified CI head; these are source integration facts, not signed package evidence.",
+      "references": [
+        "https://github.com/bataevabdullah2009-pixel/whisper-local/pull/14",
+        "https://github.com/bataevabdullah2009-pixel/whisper-local/pull/15"
+      ]
+    },
+    {
+      "check": "current-three-platform-CI",
+      "status": "passed",
+      "scope": "Desktop builds passed on Windows x64, macOS Apple Silicon and macOS Intel. Unit/UI checks, unsigned or ad-hoc packaged smoke and hosted Windows installation/uninstallation passed. No physical microphone, permissions, hotkey, paste, clean-user offline or signed/notarized package approval is inferred.",
+      "reference": "https://github.com/bataevabdullah2009-pixel/whisper-local/actions/runs/37096652139",
+      "source_commit": "ac9c471c1006fbd03449edf93a7840b3c7e884ef"
+    },
+    {
+      "check": "owner-sound-distribution-policy",
+      "status": "passed",
+      "scope": "The validator accepts the documented explicit owner decision to retain and distribute the existing Wispr Flow cues. Rights status remains unknown; no vendor permission response is asserted. Existing six WAV files are unchanged from main commit 1a3f947337bb319a87f4b02423754d67aa71960f.",
+      "reference": "docs/sound-distribution-owner-decision-2026-10-03.json"
+    },
+    {
+      "check": "public-signing-credentials",
+      "status": "unknown",
+      "scope": "GitHub repository and release-signing environment contain zero secrets. The owner reports no public Windows certificate/signing service and no Apple Developer Program subscription. The EXE route is selected; provider eligibility and cloud signing integration are not established."
+    },
+    {
+      "check": "exact-signed-candidates-and-notarization",
+      "status": "unknown",
+      "scope": "The signed-candidate workflow has zero runs. No three-target signed manifests, public Authenticode verification, accepted Apple notarization or stapled tickets are available. The source SHA in this audit is not a signed-candidate claim."
+    },
+    {
+      "check": "physical-release-workflows",
+      "status": "unknown",
+      "scope": "All 36 physical checks remain unknown across Windows x64, Apple Silicon and Intel Mac. No tester, test date, hardware, exact artifact hash or full real dictation/paste/offline evidence exists in this audit. The owner has no Macs; hosted CI and earlier source smokes do not replace these checks."
+    },
+    {
+      "check": "Intel-native-startup-timeout-cause",
+      "status": "unknown",
+      "scope": "Diagnostic startup stages are implemented and the later CI passed. The earlier 300-second native model startup timeouts were not reproduced with enough evidence to establish their cause or a backend fix.",
+      "references": [
+        "https://github.com/bataevabdullah2009-pixel/whisper-local/actions/runs/37093658179",
+        "https://github.com/bataevabdullah2009-pixel/whisper-local/pull/15"
+      ]
+    },
+    {
+      "check": "public-release-publication",
+      "status": "unknown",
+      "scope": "The publication workflow has zero runs and the repository has zero GitHub Releases. Publication remains pending exact signed candidates and completed physical evidence."
+    }
+  ]
+}
