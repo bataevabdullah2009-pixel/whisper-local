@@ -40,7 +40,8 @@ def main():
     pcm, duration = read_audio(args.audio)
     reports = []
     for device in ("cpu", "metal"):
-        worker = Worker(model, device, "auto", args.worker)
+        print(json.dumps({"check": "whispercpp-startup", "requested_device": device}), flush=True)
+        worker = Worker(model, device, "auto", args.worker, startup_progress=True)
         try:
             ready = worker.receive()
             assert ready["type"] == "ready" and ready.get("backend") == "whispercpp"
