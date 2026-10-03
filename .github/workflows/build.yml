@@ -43,6 +43,8 @@ jobs:
         run: python scripts/build_whispercpp.py
       - name: Unit and UI tests
         run: python -m unittest discover -s tests -v
+      - name: Prepare verified offline editor runtime
+        run: python scripts/prepare_editor_runtime.py
       - name: Icons
         run: python scripts/build_assets.py
       - name: Build standalone applications
@@ -51,7 +53,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: build/test-models
-          key: whisper-fixtures-${{ hashFiles('model_catalog.json', 'whispercpp_catalog.json') }}
+          key: whisper-fixtures-${{ hashFiles('model_catalog.json', 'whispercpp_catalog.json', 'editor_catalog.json') }}
+      - name: Offline editor inference on synthetic Russian phrases
+        run: python scripts/smoke_editor.py --download --output build/editor-smoke.json
       - name: Download verified public speech fixture
         run: python scripts/fetch_test_speech.py
       - name: Windows bundle smoke test
@@ -72,6 +76,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Packaged cancellation/reload test failed.' }
           python scripts/smoke_memory.py --worker dist/WhisperLocal/WhisperWorker.exe
           if ($LASTEXITCODE -ne 0) { throw 'Packaged memory lifecycle test failed.' }
+          python scripts/smoke_editor.py --model build/test-models/editor-qwen3-1.7b-90862c4b9d27/Qwen3-1.7B-Q8_0.gguf --runtime-dir dist/WhisperLocal/_internal/native/editor --output build/editor-bundle-smoke.json
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged editor inference failed.' }
       - name: macOS bundle smoke test
         if: runner.os == 'macOS'
         env:
@@ -81,6 +87,7 @@ jobs:
           python scripts/smoke_asr.py --worker "dist/Whisper Local.app/Contents/MacOS/WhisperWorker"
           python scripts/smoke_reliability.py --worker "dist/Whisper Local.app/Contents/MacOS/WhisperWorker" --audio build/jfk.wav
           python scripts/smoke_memory.py --worker "dist/Whisper Local.app/Contents/MacOS/WhisperWorker"
+          python scripts/smoke_editor.py --model build/test-models/editor-qwen3-1.7b-90862c4b9d27/Qwen3-1.7B-Q8_0.gguf --runtime-dir "dist/Whisper Local.app/Contents/Frameworks/native/editor" --output build/editor-bundle-smoke.json
       - name: Mac whisper.cpp recognition, fallback and memory lifecycle
         if: runner.os == 'macOS'
         env:
@@ -118,5 +125,7 @@ jobs:
             dist/*.dmg
             build/whispercpp-smoke.json
             build/whispercpp-small-smoke.json
+            build/editor-smoke.json
+            build/editor-bundle-smoke.json
           if-no-files-found: error
           retention-days: 14

@@ -32,6 +32,8 @@ from memory_monitor import MemoryMonitor
 from dictation_hotkey import parse_shortcut, normalize_config
 from user_dictionary import UserDictionary, normalize_config as normalize_dictionary_config
 from text_cleanup import TextCleanup, normalize_config as normalize_cleanup_config
+from phrase_editor import normalize_config as normalize_editor_config, validate_editor_model
+from editor_service import PhraseEditorService
 
 ROOT = Path(__file__).resolve().parent
 LOG = logging.getLogger("WhisperLocal")
@@ -55,6 +57,7 @@ def load_config(data_dir):
     normalize_config(default, native.IS_MAC)
     normalize_dictionary_config(default)
     normalize_cleanup_config(default)
+    normalize_editor_config(default)
     return default
 
 
@@ -157,6 +160,10 @@ class Controller(QObject):
         self.worker_restart = False
         self.request_id = None
         self.last_text = ""
+        self.last_original_text = ""
+        self.editing_id = None
+        self.editor_dictionary = None
+        self.editor_original = ""
         self.target = None
         self.record_started = 0.0
         self.stdout_buffer = b""
@@ -198,6 +205,22 @@ class Controller(QObject):
         self.setup = SetupService(self)
         self.setup.event.connect(self.setup_event)
         self.setup.failed.connect(self.setup_failed)
+        self.editor = PhraseEditorService(self)
+        self.editor.finished.connect(self.editor_finished)
+        self.editor_preview = PhraseEditorService(self)
+        self.editor_preview.finished.connect(self.editor_preview_finished)
+        self.editor_setup = SetupService(self)
+        self.editor_setup.event.connect(self.editor_setup_event)
+        self.editor_setup.failed.connect(lambda message: self.settings.cleanup_page.set_editor_busy(False, message))
+        page = self.settings.cleanup_page
+        page.editorDownloadRequested.connect(self.download_editor)
+        page.editorImportRequested.connect(self.import_editor)
+        page.editorCancelRequested.connect(self.cancel_editor_download)
+        page.editorPreviewRequested.connect(self.preview_editor)
+        page.copyOriginalRequested.connect(self.copy_original)
+        page.test_input.textChanged.connect(self.cancel_editor_preview)
+        page.changed.connect(self.cancel_editor_preview)
+        self.settings.dictionary_page.changed.connect(self.cancel_editor_preview)
         self.probe = SetupService(self)
         self.probe.event.connect(self.settings.model_page.set_hardware)
         self.probe.failed.connect(lambda message: self.settings.model_page.hardware.setText(
@@ -345,6 +368,76 @@ class Controller(QObject):
 
     def setup_failed(self, message):
         self.settings.model_page.set_busy(False, message)
+
+    def download_editor(self):
+        if self.editor.process or self.editor_preview.process:
+            self.settings.cleanup_page.refresh_editor("Дождитесь завершения редактирования.")
+            return
+        self.settings.cleanup_page.set_editor_busy(True, "Подготавливаем загрузку редактора…")
+        self.editor_setup.start("download", "qwen3-1.7b", str(self.data_dir / "models"), "editor")
+
+    def cancel_editor_download(self):
+        self.editor_setup.stop()
+        self.settings.cleanup_page.set_editor_busy(False, "Загрузка остановлена. Повторное скачивание продолжит её.")
+
+    def editor_setup_event(self, event):
+        page = self.settings.cleanup_page
+        if event.get("type") == "progress":
+            page.update_editor_progress(event)
+        elif event.get("type") == "downloaded":
+            self.activate_editor(event["path"])
+
+    def import_editor(self):
+        path, _ = QFileDialog.getOpenFileName(self.settings, "Модель редактора Qwen3 1.7B", "", "Модель редактора (*.gguf)")
+        if path:
+            self.settings.cleanup_page.set_editor_busy(True, "Проверяем скачанную модель…")
+            self.editor_setup.start("import-editor", path)
+
+    def activate_editor(self, path):
+        page = self.settings.cleanup_page
+        try:
+            path = validate_editor_model(path)
+        except (OSError, ValueError) as error:
+            page.set_editor_busy(False, str(error))
+            return False
+        previous = self.config["editor_model_path"]
+        self.config["editor_model_path"] = str(path)
+        if not self.save_config():
+            self.config["editor_model_path"] = previous
+            page.set_editor_busy(False, "Модель готова, но настройки не сохранены. Повторите подготовку.")
+            return False
+        page.set_editor_busy(False, "Редактор готов. Включите автоматическое редактирование фраз.")
+        return True
+
+    def cancel_editor_preview(self):
+        self.editor_preview.stop()
+        self.settings.cleanup_page.editor_preview.setText("Проверить редактор на примере")
+        self.settings.cleanup_page.editor_preview.setEnabled(Path(self.config["editor_model_path"]).is_file())
+
+    def preview_editor(self, text):
+        if self.state not in ("idle", "unloaded", "setup", "error") or self.editor.process:
+            self.settings.cleanup_page.preview_note.setText("Дождитесь завершения диктовки.")
+            return
+        self.cancel_editor_preview()
+        text = self.cleanup.apply(text.strip(), self.dictionary.pattern)
+        if not text:
+            return
+        page = self.settings.cleanup_page
+        page.editor_preview.setEnabled(False)
+        page.editor_preview.setText("Редактируем…")
+        self.preview_dictionary = self.dictionary
+        self.editor_preview.edit(uuid.uuid4().hex, text, self.config["editor_model_path"], self.dictionary.pattern)
+
+    def editor_preview_finished(self, _identifier, text, applied, reason):
+        self.settings.cleanup_page.test_output.setPlainText(self.preview_dictionary.apply(text))
+        self.cancel_editor_preview()
+        self.settings.cleanup_page.preview_note.setText(reason or ("Редактор исправил фразу. Пример не сохраняется."
+            if applied else "Фраза проверена. Изменения не потребовались."))
+
+    def copy_original(self):
+        if self.last_original_text:
+            QApplication.clipboard().setText(self.last_original_text)
+            self.overlay.present("copied", timeout=1.6)
 
     def setup_event(self, event):
         if event.get("type") == "progress":
@@ -666,13 +759,35 @@ class Controller(QObject):
                 self._escape(False)
                 self.overlay.present("empty", "После очистки текст пуст. Можно отключить удаление междометий.", timeout=4)
                 return
-            text = self.dictionary.apply(text)
-            self.last_text = text
-            self.copy_action.setEnabled(True)
-            self.settings.copy.setEnabled(True)
-            self.settings.latest_label.setText("Последнее распознавание готово. Его можно скопировать кнопкой ниже.")
-            self.state = "pasting"
-            self.paste_manager.paste(text, self.target)
+            if self.config["editor_enabled"]:
+                self.editor_original = self.dictionary.apply(text)
+                self.cancel_editor_preview()
+                self.editing_id = self.request_id = uuid.uuid4().hex
+                self.editor_dictionary = self.dictionary
+                self.overlay.present("processing", title="Редактируем фразу…")
+                self.editor.edit(self.editing_id, text, self.config["editor_model_path"], self.dictionary.pattern)
+            else:
+                self.accept_text(self.dictionary.apply(text))
+
+    def editor_finished(self, identifier, text, applied, reason):
+        if self.state != "processing" or identifier != self.editing_id or identifier != self.request_id:
+            return
+        self.request_id = self.editing_id = None
+        dictionary, self.editor_dictionary = self.editor_dictionary, None
+        self.settings.cleanup_page.refresh_editor(reason or ("Последняя фраза исправлена редактором."
+            if applied else "Последняя фраза проверена; изменения не потребовались."))
+        original, self.editor_original = self.editor_original, ""
+        self.accept_text(dictionary.apply(text), original)
+
+    def accept_text(self, text, original=None):
+        self.last_text = text
+        self.last_original_text = text if original is None else original
+        self.settings.cleanup_page.copy_original.setEnabled(True)
+        self.copy_action.setEnabled(True)
+        self.settings.copy.setEnabled(True)
+        self.settings.latest_label.setText("Последнее распознавание готово. Его можно скопировать кнопкой ниже.")
+        self.state = "pasting"
+        self.paste_manager.paste(text, self.target)
 
     def worker_error(self, error, source=None):
         if source is not None and source is not self.worker:
@@ -758,6 +873,7 @@ class Controller(QObject):
             self.cancel()
 
     def begin_recording(self, manual=False):
+        self.cancel_editor_preview()
         if self.shutting_down or self.suspended or not self.system_events.check():
             return
         if (not manual and self.config["dictation_mode"] == "hold" and self.hook
@@ -911,6 +1027,17 @@ class Controller(QObject):
         if self.hook and self.hook.state.held:
             self.hook.state.canceled = True
         self.paste_manager.cancel()
+        if self.editing_id is not None:
+            self.editor.stop()
+            self.editing_id = self.request_id = None
+            self.editor_dictionary = None
+            self.editor_original = ""
+            self.operation_timer.stop()
+            self.state = "idle" if self.ready else "unloaded"
+            self.idle_since = time.monotonic()
+            self._escape(False)
+            self.overlay.present("canceled", timeout=.9)
+            return
         was_active = self.state in ("recording", "waiting_model", "processing", "pasting")
         self.pending_audio = None
         if self.state == "recording":
@@ -956,6 +1083,9 @@ class Controller(QObject):
         self.shutting_down = True
         self.system_events.close()
         self.setup.stop()
+        self.editor_setup.stop()
+        self.editor.stop()
+        self.editor_preview.stop()
         self.probe.stop()
         self.hold_timer.stop()
         self.meter_timer.stop()

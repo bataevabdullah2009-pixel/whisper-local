@@ -28,6 +28,18 @@ def main():
         from runtime import hardware_info
         emit({"type": "hardware", **hardware_info()})
         return 0
+    if kind == "import-editor":
+        from phrase_editor import validate_editor_model
+        from model_manager import EDITOR_CATALOG, matches
+        try:
+            path = validate_editor_model(sys.argv[1])
+            if not matches(path, EDITOR_CATALOG[0]["files"][0]):
+                raise ValueError()
+            emit({"type": "downloaded", "path": str(path), "model_id": "qwen3-1.7b"})
+            return 0
+        except Exception:
+            emit({"type": "error", "error": "Нужна полностью скачанная модель Qwen3 1.7B Q8_0. Файл не прошёл проверку."})
+            return 1
     if kind == "download":
         from model_manager import download_model
         try:

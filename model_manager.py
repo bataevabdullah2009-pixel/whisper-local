@@ -20,6 +20,7 @@ import certifi
 CATALOG = json.loads((Path(__file__).with_name("model_catalog.json")).read_text(encoding="utf-8"))
 MODELS = {model["id"]: model for model in CATALOG}
 CPP_CATALOG = json.loads((Path(__file__).with_name("whispercpp_catalog.json")).read_text(encoding="utf-8"))
+EDITOR_CATALOG = json.loads((Path(__file__).with_name("editor_catalog.json")).read_text(encoding="utf-8"))
 DOWNLOAD_CHUNK_SIZE = 1024 * 1024
 DOWNLOAD_ATTEMPTS = 3
 DISK_RESERVE = 32 * 1024 * 1024
@@ -107,6 +108,8 @@ def _response_end(response, offset, size):
 
 
 def catalog_for(backend):
+    if backend == "editor":
+        return EDITOR_CATALOG
     if backend == "whispercpp":
         return CPP_CATALOG
     if backend == "faster-whisper":
@@ -252,7 +255,7 @@ def download_file(url: str, path: Path, file: dict, progress, opener=open_downlo
 
 def download_model(model_id: str, root: Path, emit, backend="faster-whisper") -> Path:
     model = next(model for model in catalog_for(backend) if model["id"] == model_id)
-    prefix = "whispercpp-" if backend == "whispercpp" else ""
+    prefix = "editor-" if backend == "editor" else "whispercpp-" if backend == "whispercpp" else ""
     directory = root / f"{prefix}{model_id}-{model['revision'][:12]}"
     directory.mkdir(parents=True, exist_ok=True)
     with _model_download_lock(directory):
@@ -296,5 +299,8 @@ def _download_model_files(model, directory, emit, backend):
             url = f"https://huggingface.co/{model['repo']}/resolve/{model['revision']}/{file['name']}?download=true"
             download_file(url, path, file, progress)
         completed += file["size"]
-    result = directory / model["files"][0]["name"] if backend == "whispercpp" else directory
+    result = directory / model["files"][0]["name"] if backend in ("whispercpp", "editor") else directory
+    if backend == "editor":
+        from phrase_editor import validate_editor_model
+        return validate_editor_model(result)
     return validate_model(result)

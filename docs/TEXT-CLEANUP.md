@@ -1,5 +1,9 @@
 # Local text cleanup
 
+The settings page also contains the separate optional [whole-phrase editor](PHRASE-EDITOR.md).
+The rules below describe **Простая очистка** only. The automatic editor has its own
+enable switch and requires an explicit one-time model download or verified import.
+
 Open **Очистка текста** (Text cleanup) in settings and enable **Очищать текст после
 распознавания**. Cleanup is off by default, including for existing installations.
 The two options are independent and are retained when the main switch is turned off.
@@ -93,5 +97,5 @@ Real-device checks remain pending on Windows and physical Apple Silicon/Intel Ma
 
 Development starts from PR #6's merged `codex/macos-metal-whispercpp` base in a new
 `codex/offline-text-cleanup` branch. This PR does not merge the earlier stack into `dev`.
-More involved local rewriting, download improvements and signing/notarization remain
-later stages. Physical microphone, permission and paste checks remain separate from CI.
+The optional [phrase editor](PHRASE-EDITOR.md) now adds local model-based editing separately.
+Physical microphone, permission and paste checks remain separate from CI.

@@ -52,6 +52,20 @@ backends use the same processed text for paste and manual copy. Rules persist on
 
 ## Local text cleanup
 
+For automatic whole-phrase editing, open **Очистка текста**, explicitly download the
+1.8 GB editor, then enable **Исправлять ошибки, повторы и пунктуацию во всей фразе**.
+Qwen3 1.7B runs on the local CPU, correcting obvious spelling/grammar, accidental
+repetition and punctuation without manual replacement rules. It is disabled by default.
+You can import the pinned Qwen3 1.7B Q8_0 GGUF instead; files are verified in a helper.
+The model unloads after each phrase. No network is used during editing.
+
+Numbers, URLs, quotes, code and dictionary matches are protected. Failed, timed-out
+or rejected edits keep Whisper's text. **Скопировать последний текст без редактора**
+copies the pre-editor result. Small-model editing can miss errors or change wording;
+check representative phrases. See [limits and validation](docs/PHRASE-EDITOR.md).
+
+### Simple cleanup
+
 Enable **Очистка текста** (Text cleanup) in settings, then choose prose spacing
 cleanup and optional hesitation removal (`эээ`, `эм`, `uh`, `um`). With both enabled,
 `эээ,  привет ,мир!` becomes `привет, мир!`. Cleanup is off by default and changes

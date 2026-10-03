@@ -1,0 +1,9 @@
+{
+  "version": "b6764",
+  "repository": "https://github.com/ggml-org/llama.cpp",
+  "platforms": {
+    "Windows-x64": {"archive": "llama-b6764-bin-win-cpu-x64.zip", "size": 14304792, "sha256": "2208b4cccbb7a7215b831bbd1e0efe510cb17389d61c92e9bcb0c954f44066a8"},
+    "macOS-arm64": {"archive": "llama-b6764-bin-macos-arm64.zip", "size": 10933582, "sha256": "ad23b324ece630e20dbf961eaa13d8dd8423f447c7113b2ae3a9e52de0f909a5"},
+    "macOS-x64": {"archive": "llama-b6764-bin-macos-x64.zip", "size": 28347099, "sha256": "a4beae1730b37043b62dabae23d62bb99890b9ffa6d305435b97f171de91d855"}
+  }
+}
