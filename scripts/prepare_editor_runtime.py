@@ -3,7 +3,10 @@ import hashlib
 import json
 from pathlib import Path
 import platform
+import posixpath
 import shutil
+import stat
+import subprocess
 import sys
 import urllib.request
 import zipfile
@@ -37,13 +40,34 @@ def main():
             if not name or info.is_dir():
                 continue
             path = destination / name
-            with source.open(info) as stream, path.open("wb") as output:
+            # Zip symlinks must resolve to actual library bytes, never become text stubs.
+            target = info
+            seen = set()
+            while stat.S_ISLNK(target.external_attr >> 16):
+                if target.filename in seen:
+                    raise RuntimeError("Cyclic runtime archive symlink")
+                seen.add(target.filename)
+                link = source.read(target).decode("utf-8")
+                target = source.getinfo(posixpath.normpath(posixpath.join(posixpath.dirname(target.filename), link)))
+            with source.open(target) as stream, path.open("wb") as output:
                 shutil.copyfileobj(stream, output)
             path.chmod(0o755)
+    if sys.platform == "darwin":
+        # Release archives have build-relative rpaths; the bundled runtime has a flat layout.
+        for path in destination.iterdir():
+            if path.name == "llama-cli" or path.suffix == ".dylib":
+                commands = subprocess.check_output(["otool", "-l", str(path)], text=True)
+                if "path @loader_path (" not in commands:
+                    subprocess.run(["install_name_tool", "-add_rpath", "@loader_path", str(path)], check=True)
+                subprocess.run(["codesign", "--force", "--sign", "-", str(path)], check=True, capture_output=True)
     license_url = f"https://raw.githubusercontent.com/ggml-org/llama.cpp/{pin['version']}/LICENSE"
     with urllib.request.urlopen(license_url, timeout=30) as response:
         (destination / "llama.cpp-LICENSE.txt").write_bytes(response.read())
     (destination / "runtime.json").write_text(json.dumps({"version": pin["version"], "platform": key}), encoding="utf-8")
+    cli = destination / ("llama-cli.exe" if sys.platform == "win32" else "llama-cli")
+    probe = subprocess.run([str(cli), "--version"], capture_output=True, timeout=30)
+    if probe.returncode:
+        raise RuntimeError("Editor runtime cannot start: " + probe.stderr.decode("utf-8", errors="replace"))
     print("Prepared verified offline editor runtime:", key, pin["version"])
 
 
