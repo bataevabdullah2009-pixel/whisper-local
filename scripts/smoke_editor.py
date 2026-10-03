@@ -33,6 +33,18 @@ def main():
         editor_service.editor_executable = lambda: binary
     app = QCoreApplication.instance() or QCoreApplication([])
     service = PhraseEditorService()
+    diagnostic = {}
+    finish = service.process_finished
+    def inspect_finish(code, status):
+        service.read_output()
+        raw = bytes(service.output).decode("utf-8", errors="replace").rstrip()
+        marker = " [end of text]"
+        body = raw[:-len(marker)].strip() if raw.endswith(marker) else raw
+        diagnostic.update(exit_code=code, output_characters=len(raw), eog=raw.endswith(marker),
+                          internal_linebreaks=body.count("\n"),
+                          unexpected_control=any(ord(char) < 32 and char not in "\r\n\t" for char in body))
+        finish(code, status)
+    service.process_finished = inspect_finish
     dictionary = UserDictionary([{"source": "опен ай", "replacement": "OpenAI"}])
     cases = [
         ("punctuation", "он сказал что завтра придет", lambda text: "," in text and "завтра" in text.casefold()),
@@ -43,6 +55,7 @@ def main():
     ]
     results = []
     for label, source, check in cases:
+        diagnostic.clear()
         loop = QEventLoop()
         event = []
         def finished(*values):
@@ -57,7 +70,8 @@ def main():
         service.finished.disconnect(finished)
         accepted = bool(event) and check(event[1])
         results.append({"case": label, "passed": accepted, "edited": bool(event and event[2]),
-                        "fallback": bool(not event or event[3]), "seconds": round(time.monotonic() - started, 3)})
+                        "fallback": bool(not event or event[3]), "seconds": round(time.monotonic() - started, 3),
+                        "diagnostic": dict(diagnostic)})
         # No source/candidate text in reports, console output or files.
         print(json.dumps(results[-1]), flush=True)
     service.stop()
