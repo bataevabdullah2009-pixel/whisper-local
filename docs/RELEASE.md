@@ -6,31 +6,38 @@ for the release workflow. No actual public signing or Apple notarization has bee
 The personal installation in
 `C:\Users\batae\Documents\WhisperLocal` is outside this work.
 
-## Current evidence, 2026-10-02
+## Current evidence, 2026-10-03
 
-- The 2026-10-01 downloader source suite ran 199 tests: 198 passed, one Mac-only skip before the release additions.
-- That day's combined source suite ran 210 tests: 209 passed, one Mac-only skip after the release additions.
-- A live Windows microphone smoke captured 5760 samples and passed stream abort/reopen.
-  It discarded audio and did not transcribe or save it.
-- The native Windows focus/clipboard fixture timed out before identifying its target and before
-  any paste. Its real paste/focus/clipboard result remains **unknown**; no automatic retry occurred.
-- Source and isolated unsigned Windows portable worker checks passed CPU and NVIDIA CUDA
-  model unload/reload and memory lifecycle, using an existing checksum-pinned base model and
-  cached public JFK fixture. The portable GUI smoke also passed. No model was downloaded.
-- [Desktop builds run 37026534988](https://github.com/bataevabdullah2009-pixel/whisper-local/actions/runs/37026534988)
-  passed for source commit `49aa8c0d3318bab94eb42161a12654f801b678ea` on native Windows x64,
-  macOS Apple Silicon and macOS Intel runners: unit/UI tests, unsigned or ad-hoc packaged smoke,
-  and hosted Windows installation/uninstallation without host Python. This establishes hosted
-  code/build checks; microphone permissions, hotkeys, real paste and physical machines remain unverified.
-- Clean Windows installation, a complete user dictation/paste workflow, both physical Mac types,
-  public signatures and notarization remain **unknown**. Inno Setup is not installed here, and
-  the shared installer AppId/registry was not exercised on this development computer.
+- Accumulated release preparation is integrated into `main`. This audit records main commit
+  `852e303b0714eba14e3133251c8ddeb6e91775f3`, whose tree exactly matches tested PR head
+  `ac9c471c1006fbd03449edf93a7840b3c7e884ef`.
+- [Desktop builds run 37096652139](https://github.com/bataevabdullah2009-pixel/whisper-local/actions/runs/37096652139)
+  passed for that PR head on native Windows x64, macOS Apple Silicon and macOS Intel runners:
+  unit/UI tests, unsigned or ad-hoc packaged smoke, and hosted Windows installation/uninstallation.
+  This establishes hosted code/build checks; microphone permissions, hotkeys, real paste and
+  physical release checks remain unverified.
+- Existing Wispr Flow cues and default sound choices are preserved. The explicit
+  [owner distribution decision](sound-distribution-owner-decision-2026-10-03.json) is accepted by
+  the release policy while sound rights status remains unknown.
+- GitHub inspection at `2026-10-03T04:50:53Z` found zero repository secrets, zero
+  `release-signing` environment secrets, zero signed-candidate workflow runs, zero publication
+  workflow runs and zero GitHub Releases. Signing and notarization have not been performed.
+- All 36 physical checks remain unknown, with no exact signed artifact, tester, hardware or
+  test date recorded. Source microphone checks and hosted installer smoke do not fill those gates.
+- Intel startup diagnostics now report safe initialization stages. The later successful CI
+  does not establish the cause or a fix for the earlier 300-second native model startup timeouts.
 
-The machine-readable [current record](release-readiness-2026-10-02.json) preserves these partial
-observations separately from the release gates. It intentionally cannot pass the readiness check.
-Code checks and unsigned portable smoke do not certify a future signed installer with different bytes.
-The [2026-10-01 historical record](release-readiness-2026-10-01.json) retains the earlier CI billing
-failure and the original partial Windows observations.
+The machine-readable [current audit](release-readiness-2026-10-03.json) records these observations
+separately from the release gates. Its source SHA identifies the audited main snapshot, not a
+signed candidate. It intentionally cannot pass the readiness check. Public signing credentials,
+Apple Developer Program access, exact signed/notarized packages and real-machine evidence are
+still required before publication.
+
+The [2026-10-02 record](release-readiness-2026-10-02.json) preserves earlier successful CI and
+partial Windows source/portable observations, including the microphone smoke and unresolved
+focus/clipboard fixture. The [2026-10-01 record](release-readiness-2026-10-01.json) retains the
+earlier CI billing failure. These historical observations are not certification of future
+signed packages with different bytes.
 
 ## Two separate workflows
 

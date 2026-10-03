@@ -35,16 +35,19 @@ These are a checklist, not a claim that these tests have already passed.
 - Sign Windows installers and sign/notarize Mac bundles before a broad public release.
 
 Signing setup, the separate manual candidate workflow and physical evidence requirements are in
-[RELEASE.md](RELEASE.md). The [2026-10-02 readiness record](release-readiness-2026-10-02.json)
-records successful [three-platform Desktop builds](https://github.com/bataevabdullah2009-pixel/whisper-local/actions/runs/37026534988)
-for source commit `49aa8c0d3318bab94eb42161a12654f801b678ea`, including unit/UI tests,
-unsigned or ad-hoc packaged smoke and hosted Windows installation/uninstallation. It keeps those
-checks separate from full release approval: physical Windows/Mac workflows, public signing,
-notarization and sound redistribution permission remain unknown. The
-[historical record](release-readiness-2026-10-01.json) preserves the earlier blocked CI run.
-The later [2026-10-03 owner sound decision](sound-distribution-owner-decision-2026-10-03.json)
-allows distribution with rights status still unknown; the validator accepts that explicit
-choice separately from verified permission. It does not fill the missing signing or physical evidence.
+[RELEASE.md](RELEASE.md). The [2026-10-03 readiness audit](release-readiness-2026-10-03.json)
+records completed main integration and successful
+[three-platform Desktop builds](https://github.com/bataevabdullah2009-pixel/whisper-local/actions/runs/37096652139)
+for tested head `ac9c471c1006fbd03449edf93a7840b3c7e884ef`, whose tree matches audited main
+snapshot `852e303b0714eba14e3133251c8ddeb6e91775f3`. Those checks include unit/UI tests,
+unsigned or ad-hoc packaged smoke and hosted Windows installation/uninstallation. Public signing,
+notarization and all 36 physical checks remain unknown; no signed-candidate or publication
+workflow has run and no GitHub Release exists at the audit time.
+The [owner sound decision](sound-distribution-owner-decision-2026-10-03.json) permits distribution
+under our release policy while rights status remains unknown. This does not fill missing signing
+or physical evidence. The [2026-10-02 record](release-readiness-2026-10-02.json) preserves earlier
+CI and partial Windows observations; the [2026-10-01 record](release-readiness-2026-10-01.json)
+preserves the historical blocked CI run. These are dated audits, not completed release evidence.
 The [Mac tester guide](MAC-RELEASE-TESTING.md) describes collecting real Apple Silicon and Intel
 evidence without treating hosted CI as a physical check.
 Durable download behavior and its code checks are in [DOWNLOADS.md](DOWNLOADS.md).
@@ -61,4 +64,5 @@ Cancelling an in-flight transcription now kills the worker,
 stops native computation and automatically reloads the model. Esc during model preparation only
 dismisses the capsule. Interruption validation and remaining hardware gates: [RELIABILITY.md](RELIABILITY.md).
 Automatic paste success means the input shortcut was sent, not that the target application's document was read back.
-Original sound files remain in this branch; their existing provenance notice is unchanged.
+Existing sound files and default choices are preserved; provenance is documented in
+[SOURCES.md](../assets/sounds/SOURCES.md).
