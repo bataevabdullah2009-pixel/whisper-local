@@ -64,6 +64,8 @@ jobs:
         run: python scripts/build_whispercpp.py
       - name: Unit and UI tests
         run: python -m unittest discover -s tests -v
+      - name: Prepare verified offline editor runtime
+        run: python scripts/prepare_editor_runtime.py
       - name: Icons
         run: python scripts/build_assets.py
       - name: Build standalone applications
@@ -88,7 +90,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: build/test-models
-          key: whisper-fixtures-${{ hashFiles('model_catalog.json', 'whispercpp_catalog.json') }}
+          key: whisper-fixtures-${{ hashFiles('model_catalog.json', 'whispercpp_catalog.json', 'editor_catalog.json') }}
+      - name: Offline editor inference on synthetic Russian phrases
+        run: python scripts/smoke_editor.py --download --output build/editor-smoke.json
       - name: Download verified public speech fixture
         run: python scripts/fetch_test_speech.py
       - name: Signed Windows bundle smoke
@@ -106,6 +110,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Signed cancellation/reload smoke failed.' }
           python scripts/smoke_memory.py --worker dist/WhisperLocal/WhisperWorker.exe
           if ($LASTEXITCODE -ne 0) { throw 'Signed memory lifecycle smoke failed.' }
+          python scripts/smoke_editor.py --model build/test-models/editor-qwen3-1.7b-90862c4b9d27/Qwen3-1.7B-Q8_0.gguf --runtime-dir dist/WhisperLocal/_internal/native/editor --output build/editor-bundle-smoke.json
+          if ($LASTEXITCODE -ne 0) { throw 'Signed editor inference failed.' }
       - name: Signed macOS bundle smoke
         if: runner.os == 'macOS'
         env:

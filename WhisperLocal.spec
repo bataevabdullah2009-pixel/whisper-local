@@ -15,10 +15,19 @@ if sys.platform == "darwin":
         mac_signing = dict(codesign_identity=identity)
         gui_mac_signing = dict(**mac_signing,
                                entitlements_file=str(root / "packaging/macos-entitlements.plist"))
-data = [(str(root / name), ".") for name in ("config.example.json", "model_catalog.json", "whispercpp_catalog.json")]
+data = [(str(root / name), ".") for name in ("config.example.json", "model_catalog.json", "whispercpp_catalog.json", "editor_catalog.json")]
 data += [(str(root / "assets/sounds"), "assets/sounds")]
 data += collect_data_files("faster_whisper") + collect_data_files("certifi")
 binaries = collect_dynamic_libs("ctranslate2") + collect_dynamic_libs("onnxruntime")
+editor_runtime = root / "build/native/editor"
+editor_cli = editor_runtime / ("llama-cli.exe" if sys.platform == "win32" else "llama-cli")
+if not editor_cli.is_file():
+    raise RuntimeError("Run scripts/prepare_editor_runtime.py before packaging")
+binaries += [(str(path), "native/editor") for path in editor_runtime.iterdir()
+             if (sys.platform == "darwin" or "rpc" not in path.name.lower())
+             and (path.name in ("llama-cli.exe", "llama-cli") or path.suffix in (".dll", ".dylib"))]
+data += [(str(path), "native/editor") for path in editor_runtime.iterdir()
+         if path.suffix in (".txt", ".json", ".metallib")]
 if sys.platform == "darwin":
     bridge = root / "build/native/libwhisperlocal.dylib"
     if not bridge.is_file():
