@@ -1,8 +1,9 @@
 # Release preparation
 
 This repository is preparing release candidates. It is not ready for a broad public release.
-The owner currently has no Macs or public signing certificates. No actual public signing or
-Apple notarization has been performed. The personal installation in
+The owner currently has no Macs, and public signing credentials have not been provisioned
+for the release workflow. No actual public signing or Apple notarization has been performed.
+The personal installation in
 `C:\Users\batae\Documents\WhisperLocal` is outside this work.
 
 ## Current evidence, 2026-10-02
@@ -92,8 +93,12 @@ startup without host Python and uninstalling. That is a hosted smoke, not a clea
 ## macOS signing and notarization setup
 
 Enroll the publisher in the Apple Developer Program, create a **Developer ID Application**
-certificate, export the certificate and private key from Keychain as a password-protected P12,
-and create a permitted App Store Connect team API key for notarization. Provision:
+certificate and combine it with its matching private key in a password-protected P12.
+The [Windows preparation procedure](MAC-RELEASE-TESTING.md#prepare-the-csr-and-p12-on-windows)
+uses OpenSSL to create the CSR and encrypted private key, then packages the certificate
+issued by Apple. A Mac is not needed for those local file operations; Apple enrollment,
+certificate issuance and the actual Mac signing/import check remain requirements.
+Create a permitted App Store Connect team API key for notarization. Provision:
 
 | Secret | Value |
 | --- | --- |
